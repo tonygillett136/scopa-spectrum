@@ -1,0 +1,56 @@
+/* CRT Monitor Styling */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: #0a0a0a;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+}
+
+#monitor {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Subtle CRT monitor glow on the "desk" */
+    filter: drop-shadow(0 0 30px rgba(100, 100, 200, 0.15));
+}
+
+#screen {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* The CRT output canvas inherits pixel rendering */
+#crt-output {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* Vignette overlay — darkens the edges like a real CRT */
+#vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: radial-gradient(
+        ellipse at center,
+        transparent 60%,
+        rgba(0, 0, 0, 0.35) 100%
+    );
+    z-index: 10;
+}
