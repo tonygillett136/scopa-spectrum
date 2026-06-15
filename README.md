@@ -14,13 +14,43 @@ Load `scopa.tap` on a real 48K Spectrum or an accurate emulator. It boots from a
 multi-part tape loader straight to the title screen.
 
 - **Title screen**: `SPACE` to start, `H` for how-to-play.
-- **Skill select**: `1` Easy, `2` Medium, `3` Hard.
+- **Skill select**: `1` Easy, `2` Medium, `3` Hard. `4` toggles the optional **Asso piglia
+  tutto** rule (default OFF — see below).
 - **In play**: `O` / `P` move the cursor over your hand (and cycle capture options when a
-  played card can take more than one set); `SPACE` plays / confirms.
+  played card can take more than one set); `SPACE` plays / confirms. Your played card stays
+  in your hand while you choose which cards to take, so it never hides the table.
 
 Match is first to 11 points. Each deal scores **Carte** (most cards), **Denari** (most
 coins), **Settebello** (7 of coins), **Primiera** (best card from each suit), one point per
 **Scopa** (table sweep), plus the regional **Napola/Neapolitan** and *palle del cane* bonuses.
+
+### Optional rule: *Asso piglia tutto*
+
+A traditional Neapolitan variation, off by default, toggled with `4` on the skill screen.
+With it on, playing an **ace sweeps the whole table** — unless an ace is already on the table
+(then it takes only that ace), and an ace on an empty table simply drops. This is the *Scopa
+d'Assi* reading, where clearing the table with an ace scores **no** Scopa point.
+
+## The AI
+
+The opponent evaluates **every legal play** — each card in its hand against each way it could
+capture, plus simply dropping — and scores each with a weighted value function, then plays the
+best (a 1-ply look). The priorities mirror how Scopa actually scores: the *settebello* and the
+sevens/sixes (primiera) are prized, a *scopa* is big, and it weighs grabbing points now against
+leaving you an easy table.
+
+- **Easy** — greedy: takes the most valuable capture, ignores what it leaves behind.
+- **Medium** — adds defence: avoids handing you a sweep or easy matches.
+- **Hard** — adds card-counting: it remembers every card already played and pushes harder late
+  in a deal.
+
+It plays **fair**. The AI only ever sees its own hand, the face-up table, and (on Hard) the
+public record of cards already played — *never* your hand or the deck order. The deck is a
+Fisher-Yates shuffle seeded at boot.
+
+The weights aren't guesses any more: they were **self-play tuned** with `tools/ai_tune.py`, a
+host-side simulator that plays tens of thousands of games to search the weight space (only
+changes that reproduced across independent runs were kept).
 
 ## Building
 
@@ -38,7 +68,7 @@ python build_tap.py               # -> scopa.tap
 ```
 
 `TESTMODE` builds run scripted scenarios for headless verification:
-`sjasmplus -DTESTMODE=N scopa.asm` (N = 1..15; see `DEVELOPMENT.md`).
+`sjasmplus -DTESTMODE=N scopa.asm` (N = 1..19; see `DEVELOPMENT.md`).
 
 ### Note on the card art
 
@@ -57,7 +87,7 @@ strictly faithful to that reference deck.
 | `title.rle` / `title.scr` / `loading.scr` | Screens |
 | `*_banner.bin` | SCOPA! / NEAPOLITAN / tricolore banners |
 | `build_tap.py` | Builds `scopa.tap` (silent multi-part loader) |
-| `tools/` | Art pipeline (`convert_deck.py`, `make_screens.py`, `mono_outline.py`, …) |
+| `tools/` | Art pipeline (`convert_deck.py`, `make_screens.py`, `mono_outline.py`) + `ai_tune.py` (host-side AI weight tuner) |
 | `DEVELOPMENT.md` | Architecture / memory map / build / gotchas reference |
 | `DEVLOG.md` | Chronological build log |
 | `ARTICLE.md` | Write-up of how the game was built |
