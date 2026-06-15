@@ -516,3 +516,25 @@ is already on the leftover table (sweep-proof). Applies on MEDIUM/HARD (EASY ski
 TESTMODE 19 (capture leaving [settebello,7c] -> BestScoreW=-20, the -27 ace-guard applied) PASS.
 Both only affect play when AceRule is ON (off = default = unchanged). code 10564B (1724B free).
 tap 38308B. PENDING Tony+Ange CRT test.
+
+## AI weight self-play tuning + 2-ply experiment (2026-06-15)
+Tony+Ange asked to optimise the (hand-tuned, ported-from-ai.js) weights and to "shoot for" 2-ply.
+Built tools/ai_tune.py: a faithful host-side Python sim of the rules+scoring + the EXACT 1-ply
+evaluator (validated: reproduces the Z80 TESTMODE 18/19 scores precisely; W0-vs-W0 mirror = 0.485).
+OPTIMISER = coordinate ascent with common-random-numbers (paired decks per candidate) + re-baselining
+(iterated hill-climb), candidate-vs-current over hundreds of matches/eval. Ran twice with independent
+seeds; kept ONLY the changes that reproduced in BOTH runs (signal vs noise) -> CONSENSUS, 6 changes:
+  card_count 2->3, seven 15->12, drop_7 -12->-5, drop_6 -6->-5, leave_sweep_risk -20->-9,
+  leave_easy_capture -2->-5.
+(Discarded noisy per-run picks: six->-2 [run2 said 7], sweep->26, settebello->51, ace, drop_face.)
+VALIDATION (12k matches): consensus vs current = 0.541; vs random 0.889 (current 0.878) -> genuinely
++ generally stronger, not overfit. The consensus matches the noisy full set in strength (run1-vs-
+consensus 0.503) but is simpler/justified. BAKED into scopa.asm (card_count now *3 via add a,a/add a,c;
+the four ld de constants); TESTMODE 18 now 45 (was 44), 19 now -21 (was -20) -- both re-verified PASS,
+Z80 == Python.
+2-PLY: implemented a "paranoid" lookahead (immediate gain minus discount*opponent's best reply to the
+resulting table). Result: with OLD weights marginal (0.522 at discount 0.3, worse above); with the
+TUNED weights it adds ~NOTHING (0.50-0.507, within noise) AND is ~4x slower/move. Conclusion: a
+well-tuned 1-ply reactive heuristic already captures the cheap-lookahead value; worst-case lookahead is
+too pessimistic under hidden info. NOT implemented on the Z80 (a proper Monte-Carlo lookahead might do
+better but is far too heavy for 3.5MHz). code 10565B (1723B free); tap 38309B. PENDING Tony+Ange CRT.

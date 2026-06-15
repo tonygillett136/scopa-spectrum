@@ -405,8 +405,8 @@ Start:
     ENDIF
     IF TESTMODE == 18
     ; fix #1: the AI must NOT credit a scopa (+50) for an ace-sweep (Scopa d'Assi).
-    ; AI hand=[ace denari]; table=[5d,7c,10d]. Ace sweep score = 8 card-count + 36 bonuses = 44.
-    ; (denari 5+15+5+11; played ace = denari5 + ace6 = 11). Without the fix it would be 94.
+    ; AI hand=[ace denari]; table=[5d,7c,10d]. Ace sweep = 12 card-count + 33 bonuses = 45.
+    ; (denari 5+12+5+11; played ace = denari5+ace6=11). Without the fix it would be 95.
     ld a,1
     ld (AceRule),a
     ld a,1
@@ -432,7 +432,7 @@ Start:
     IF TESTMODE == 19
     ; fix #2: leaving an ace-less table (with the settebello on it) is penalised under AceRule.
     ; AI hand=[4 of coppe] captures the 4 of denari, LEAVING [settebello, 7 coppe] (no ace).
-    ; score = 4 count + 5 (4d denari) - 2 (easy 7s) - 2 (ace-guard: 2 cards) - 25 (settebello) = -20.
+    ; score = 6 count + 5 (4d denari) - 5 (easy 7s) - 2 (ace-guard: 2 cards) - 25 (settebello) = -21.
     ld a,1
     ld (AceRule),a
     ld a,1
@@ -955,7 +955,7 @@ CardBonus:
     call valueOf
     cp 7
     jr nz,.b6
-    ld de,15
+    ld de,12                     ; SEVEN capture (self-play tuned, was 15)
     call AddScoreDE
     ret
 .b6:
@@ -995,8 +995,10 @@ EvalCapture:
     jr c,.cc
 .cc0:
     inc c                        ; + played card
-    sla c                        ; *2 (CARD_COUNT weight)
-    ld e,c
+    ld a,c                       ; CARD_COUNT weight = *3 (self-play tuned, was *2)
+    add a,a
+    add a,c
+    ld e,a
     ld d,0
     call AddScoreDE
     ld a,(TableN)
@@ -1204,7 +1206,7 @@ EvalSafety:
     ld a,c
     cp 11
     jr nc,.nsr
-    ld de,-20                    ; LEAVE_SWEEP_RISK (sum <= 10)
+    ld de,-9                     ; LEAVE_SWEEP_RISK (sum <= 10) (self-play tuned, was -20)
     call AddScoreDE
 .nsr:
     ld d,1
@@ -1227,7 +1229,7 @@ EvalSafety:
     jr .vn
 .vm:
     push de
-    ld de,-2                     ; LEAVE_EASY_CAPTURE (per matchable value)
+    ld de,-5                     ; LEAVE_EASY_CAPTURE (per matchable value) (self-play tuned, was -2)
     call AddScoreDE
     pop de
 .vn:
@@ -1284,13 +1286,13 @@ EvalDrop:
     call valueOf
     cp 7
     jr nz,.n7
-    ld de,-12                    ; DROP_7
+    ld de,-5                     ; DROP_7 (self-play tuned, was -12)
     call AddScoreDE
     jr .den
 .n7:
     cp 6
     jr nz,.den
-    ld de,-6                     ; DROP_6
+    ld de,-5                     ; DROP_6 (self-play tuned, was -6)
     call AddScoreDE
 .den:
     ld a,c

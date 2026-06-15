@@ -46,6 +46,7 @@ scopa/
     convert_deck.py    reference JPGs -> deck.bin (defined-mono). RUN FROM scopa/ (writes CWD-relative!).
     make_screens.py    reference JPGs -> title.scr + loading.scr (colour per-cell quantise).
     compare_figures.py figure-card conversion A/B montage (-> /tmp/figure_compare.png).
+    ai_tune.py         host-side Scopa sim + self-play AI weight tuner + 2-ply experiment.
     mono_outline.py    helpers (fit, BAYER, png) used by convert_deck.py.
   DEVLOG.md            chronological build log.
   DEVELOPMENT.md       this file.
@@ -219,11 +220,14 @@ set) — Scopa d'Assi. EvalSafety penalises leaving an ace-LESS table when AceRu
 could ace-sweep it): −1/leftover card, −25 if the settebello is exposed; sweep-proof if an ace is on
 the leftover table. (Both no-ops when the rule is off.) Verify via TESTMODE 18/19 reading BestScoreW
 (`sjasmplus --sym=` dumps state addresses; BestScoreW currently 0xB0E4 but RE-DUMP, it shifts).
-NOTE — the weights are **hand-tuned heuristics ported from ai.js, not optimised**; the priorities are
-right but the exact integers are guesses. To optimise: build a host-side (Python) simulator of the
-rules + the linear evaluator, run self-play tournaments (coordinate-ascent / small GA: candidate
-weights vs current) maximising win-rate, bake the tuned small-int weights back into the Z80 tables.
-The evaluator is 1-ply greedy — a bigger gain than weight-tuning would be shallow (2-ply) lookahead.
+Weights were **self-play tuned** (tools/ai_tune.py — a faithful Python sim + coordinate-ascent with
+common-random-numbers, run twice; only changes reproduced in both runs were kept). Tuned set vs the
+old hand weights ≈ 54% over 12k matches, and better vs random too. Baked: card_count ×2→×3, seven
+15→12, drop_7 −12→−5, drop_6 −6→−5, leave_sweep_risk −20→−9, leave_easy_capture −2→−5. To re-tune:
+`python tools/ai_tune.py optimise [matches]`; bake the printed consensus into the Z80 constants and
+update TESTMODE 18/19 expected scores. A 2-ply "paranoid" lookahead was tried and is NOT worth it
+(≈no gain once weights are tuned, ~4× slower/move; worst-case lookahead is too pessimistic under
+hidden info) — see `twoply` in ai_tune.py.
 
 ---
 
