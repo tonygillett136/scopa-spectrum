@@ -403,6 +403,58 @@ Start:
 .h17:
     jr .h17
     ENDIF
+    IF TESTMODE == 18
+    ; fix #1: the AI must NOT credit a scopa (+50) for an ace-sweep (Scopa d'Assi).
+    ; AI hand=[ace denari]; table=[5d,7c,10d]. Ace sweep score = 8 card-count + 36 bonuses = 44.
+    ; (denari 5+15+5+11; played ace = denari5 + ace6 = 11). Without the fix it would be 94.
+    ld a,1
+    ld (AceRule),a
+    ld a,1
+    ld (Difficulty),a            ; medium -> no HARD card-count term
+    call ClearSeen
+    ld a,4                       ; 5 of denari
+    ld (Table),a
+    ld a,16                      ; 7 of coppe
+    ld (Table+1),a
+    ld a,9                       ; 10 of denari
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    xor a                        ; ace of denari (id 0) in hand slot 0
+    ld (Opp),a
+    ld a,0xFF
+    ld (Opp+1),a
+    ld (Opp+2),a
+    call aiSelectPlay            ; -> BestScoreW = the ace-sweep's score
+.h18:
+    jr .h18
+    ENDIF
+    IF TESTMODE == 19
+    ; fix #2: leaving an ace-less table (with the settebello on it) is penalised under AceRule.
+    ; AI hand=[4 of coppe] captures the 4 of denari, LEAVING [settebello, 7 coppe] (no ace).
+    ; score = 4 count + 5 (4d denari) - 2 (easy 7s) - 2 (ace-guard: 2 cards) - 25 (settebello) = -20.
+    ld a,1
+    ld (AceRule),a
+    ld a,1
+    ld (Difficulty),a
+    call ClearSeen
+    ld a,3                       ; 4 of denari (value 4)
+    ld (Table),a
+    ld a,6                       ; settebello (value 7)
+    ld (Table+1),a
+    ld a,16                      ; 7 of coppe (value 7)
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    ld a,13                      ; 4 of coppe (value 4) -> captures the 4 of denari
+    ld (Opp),a
+    ld a,0xFF
+    ld (Opp+1),a
+    ld (Opp+2),a
+    call aiSelectPlay
+.h19:
+    jr .h19
+    ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
     ld hl,Table
@@ -982,7 +1034,10 @@ EvalCapture:
     ld a,(TmpTableN)
     or a
     jr nz,.sf
-    ld de,50                     ; SWEEP
+    ld a,(AceSweepOpt)
+    or a
+    ret nz                       ; ace-sweep clears the table but scores NO scopa (Scopa d'Assi)
+    ld de,50                     ; SWEEP (scopa)
     call AddScoreDE
     ret
 .sf:
@@ -1180,6 +1235,39 @@ EvalSafety:
     ld a,d
     cp 11
     jr c,.vv
+    ; --- asso piglia tutto: a table with NO ace can be swept by the opponent's ace ---
+    ld a,(AceRule)
+    or a
+    ret z                        ; rule off -> no ace-sweep risk
+    ld a,(TmpTableN)
+    ld b,a
+    ld e,0
+    ld c,0                       ; C.0 = settebello is on the leftover table
+.asx:
+    ld hl,TmpTable
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    cp 6                         ; settebello id
+    jr nz,.asx2
+    set 0,c
+.asx2:
+    call valueOf
+    cp 1
+    ret z                        ; an ace is on the table -> sweep-proof, no risk
+    inc e
+    ld a,e
+    cp b
+    jr c,.asx
+    ld a,(TmpTableN)             ; no ace -> opponent could sweep the lot with an ace
+    neg
+    ld e,a
+    ld d,0xFF                    ; -1 per leftover card
+    call AddScoreDE
+    bit 0,c
+    ret z
+    ld de,-25                    ; ...and the settebello would be lost to that sweep
+    call AddScoreDE
     ret
 
 ; EvalDrop: ScoreW for dropping AICardId (no capture available)

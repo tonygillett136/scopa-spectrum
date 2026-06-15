@@ -501,3 +501,18 @@ row; candidate table cards flash in sync with the hand card. DrawPlayedCard kept
 (post-confirm). TESTMODE 15 repurposed (card-in-hand render, screenshot verified); TESTMODE 17 verifies
 the ChoiceMade path captures the CHOSEN option (pick option 1 of two 7s -> 7 coppe taken, 7 denari
 left). code 10501B (1787B free). tap 38244B. PENDING Tony+Ange CRT test.
+
+## AI accuracy under asso piglia tutto (2026-06-15)
+Tony+Ange asked to tighten the two AI rough edges flagged for the ace-takes-all rule (and asked
+whether the weights are optimal -- they're hand-tuned heuristics ported from ai.js, NOT optimised;
+discussed self-play tuning as the route to optimise them).
+FIX #1 (offence): EvalCapture credited +50 SWEEP whenever the table cleared -- including an ace-sweep,
+which under Scopa d'Assi is NOT a scopa. Now: if AceSweepOpt set, skip the +50 (the sweep still scores
+the whole table's card/coin/primiera value, just no scopa). TESTMODE 18 (ace sweeps 5d/7c/10d ->
+BestScoreW=44, was 94) PASS.
+FIX #2 (defence): EvalSafety now penalises leaving an ace-LESS table when AceRule on (the opponent
+could ace-sweep it): -1 per leftover card, -25 extra if the settebello is exposed; skipped if an ace
+is already on the leftover table (sweep-proof). Applies on MEDIUM/HARD (EASY skips all safety).
+TESTMODE 19 (capture leaving [settebello,7c] -> BestScoreW=-20, the -27 ace-guard applied) PASS.
+Both only affect play when AceRule is ON (off = default = unchanged). code 10564B (1724B free).
+tap 38308B. PENDING Tony+Ange CRT test.
