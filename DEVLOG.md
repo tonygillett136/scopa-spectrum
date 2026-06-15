@@ -476,3 +476,28 @@ solid alongside. Net +7 bytes (refactor ~neutral). VERIFIED headless: new regres
 (two 7s + a spare on table, play a 7, render the choice) -> screenshot shows all 4 cards incl. the
 played 7 of spade at the 4th slot (was absent before). TESTMODE 15 is conditional-asm = 0 bytes in
 ship build. code 10215B (2073B free). tap 37960B.
+
+## Asso piglia tutto (optional rule) + card-in-hand capture choice (2026-06-15)
+Ange (with Tony) raised two things. Researched the variation independently (pagat.com authoritative):
+**"Asso piglia tutto"** = an ace captures the WHOLE table, UNLESS an ace is already on the table
+(then it takes only that ace); an ace on an empty table just drops. Two scoring sub-variants:
+asso-piglia-tutto (sweep = scopa) vs **Scopa d'Assi (sweep is NOT a scopa)**. Tony/Ange chose
+**Scopa d'Assi**, default OFF, toggle on the skill screen.
+(1) RULE: new state AceRule (0 off, boot-init off). findAllCaptures: if AceRule & played value==1 &
+no ace on the table & table non-empty -> single option = full-table mask (all bits) + set AceSweepOpt.
+ResolvePlay scopa block: if AceSweepOpt, skip the scopa (Scopa d'Assi). The "ace present -> takes the
+ace" and "empty -> drop" cases need NO new code (already the engine's behaviour). AI is automatic (it
+scores plays via findAllCaptures, so it values the sweep). TESTMODE 16 verifies: ace sweeps 3 non-ace
+cards -> TableN=0, PPileN=4, PScopa=0. UI: SelectDifficulty gains key 4 toggling "ASSO PIGLIA TUTTO
+OFF/ON" (white/green) + subtitle "(ACE TAKES WHOLE TABLE)"; debounced; AceRule reset OFF each menu.
+Screenshotted OFF+ON.
+(2) CAPTURE CHOICE NOW HAPPENS WITH THE CARD IN HAND (Ange: on a full table the played card, drawn at
+the clamped table slot, overlapped a table card you were studying). Reordered PlayerTurn .play: keep
+the card in the hand, findAllCaptures, and if multi-option run PlayerChooseCapture BEFORE removing/
+sliding -> store ChoiceVal + ChoiceMade=1; only THEN remove from hand + slide + ResolvePlay (which uses
+ChoiceMade/ChoiceVal instead of re-prompting). PaintChoice now HighlightCursor (flash the in-hand card)
+instead of DrawPlayedCard -> the played card sits in the HAND row, structurally can't overlap the table
+row; candidate table cards flash in sync with the hand card. DrawPlayedCard kept for ShowCapture
+(post-confirm). TESTMODE 15 repurposed (card-in-hand render, screenshot verified); TESTMODE 17 verifies
+the ChoiceMade path captures the CHOSEN option (pick option 1 of two 7s -> 7 coppe taken, 7 denari
+left). code 10501B (1787B free). tap 38244B. PENDING Tony+Ange CRT test.

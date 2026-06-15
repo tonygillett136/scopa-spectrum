@@ -75,6 +75,10 @@ Inc1:      defs 2                  ; title music: melody channel phase increment
 Acc2:      defs 2                  ; title music: bass channel phase accumulator
 Inc2:      defs 2                  ; title music: bass channel phase increment
 BorderC:   defs 1                  ; current border colour -- restored after music/jingles
+AceRule:   defs 1                  ; optional "asso piglia tutto": ace takes whole table (0=off default)
+AceSweepOpt: defs 1                ; 1 = the current capture is an ace-sweep -> Scopa d'Assi: no scopa
+ChoiceMade: defs 1                 ; 1 = player picked the capture before the slide (card stays in hand)
+ChoiceVal:  defs 1                 ; the pre-chosen capture option index
 
     ORG 0x8000
 Start:
@@ -300,18 +304,19 @@ Start:
     jr .h14
     ENDIF
     IF TESTMODE == 15
-    ; capture-choice RENDER check: two 7s on the table (+ a spare 10), player has just
-    ; played a 7. Confirms the PLAYED card is now drawn during the choice (was invisible).
-    ld a,6                       ; 7 of denari (settebello, value 7)
+    ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
+    ; never overlap a table card). Two 7s + a spare on the table; the played 7 sits in hand.
+    ld a,6                       ; 7 of denari on the table
     ld (Table),a
-    ld a,16                      ; 7 of coppe (value 7)
+    ld a,16                      ; 7 of coppe on the table
     ld (Table+1),a
     ld a,9                       ; 10 of denari (spare, NOT a 7)
     ld (Table+2),a
     ld a,3
     ld (TableN),a
-    ld a,0xFF                    ; hand empty: the played card was already removed
+    ld a,26                      ; 7 of spade = the played card, STILL in the hand
     ld (Player),a
+    ld a,0xFF
     ld (Player+1),a
     ld (Player+2),a
     ld (Opp),a
@@ -320,15 +325,83 @@ Start:
     xor a
     ld (PPileN),a
     ld (OPileN),a
-    ld a,26                      ; played = 7 of spade (value 7)
+    ld (Cursor),a                ; cursor on the played card
+    inc a
+    ld (HumanTurn),a            ; player's turn -> the in-hand card flashes
+    ld a,26
     ld (Played),a
     ld a,7
     call findAllCaptures         ; value 7 -> two single-7 options
     xor a
     ld (ChoiceIdx),a
-    call PaintChoice             ; render option 0 -> the played 7 MUST be visible
+    call PaintChoice             ; played 7 stays in the hand; the candidate table 7 flashes
 .h15:
     jr .h15
+    ENDIF
+    IF TESTMODE == 16
+    ; asso piglia tutto (Scopa d'Assi): an ace sweeps a NON-ace table -> table clears, NO scopa.
+    ; Expect PPileN=4 (3 table + the ace), TableN=0, PScopa=0.
+    ld a,1
+    ld (AceRule),a
+    xor a
+    ld (PPileN),a
+    ld (OPileN),a
+    ld (PScopa),a
+    ld (OScopa),a
+    ld a,4                       ; 5 of denari (value 5)
+    ld (Table),a
+    ld a,11                      ; 2 of coppe (value 2)
+    ld (Table+1),a
+    ld a,9                       ; 10 of denari (value 10) -- no ace anywhere on the table
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    ld a,0xFF                    ; played ace already removed from the hand
+    ld (Player),a
+    ld (Player+1),a
+    ld (Player+2),a
+    ld a,12                      ; opponent still holds a card -> not the last play
+    ld (Opp),a
+    ld a,0xFF
+    ld (Opp+1),a
+    ld (Opp+2),a
+    ld a,20
+    ld (DeckPos),a
+    xor a                        ; play id 0 = ace of denari (value 1)
+    ld c,0
+    call ResolvePlay
+.h16:
+    jr .h16
+    ENDIF
+    IF TESTMODE == 17
+    ; player capture choice applied via the pre-slide ChoiceMade path: two 7s on the table,
+    ; pick OPTION 1 (the 7 of coppe). Expect Table=[7denari], TableN=1, PPile=[7coppe,7spade].
+    xor a
+    ld (PPileN),a
+    ld (OPileN),a
+    ld a,6                       ; 7 of denari  -> option 0
+    ld (Table),a
+    ld a,16                      ; 7 of coppe   -> option 1
+    ld (Table+1),a
+    ld a,2
+    ld (TableN),a
+    ld a,0xFF                    ; played card already out of the hand
+    ld (Player),a
+    ld (Player+1),a
+    ld (Player+2),a
+    ld a,12
+    ld (Opp),a
+    ld a,0xFF
+    ld (Opp+1),a
+    ld (Opp+2),a
+    ld a,1
+    ld (ChoiceMade),a            ; simulate: the player pre-chose...
+    ld (ChoiceVal),a             ; ...option 1 (the 7 of coppe)
+    ld a,26                      ; played = 7 of spade
+    ld c,0
+    call ResolvePlay
+.h17:
+    jr .h17
     ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
@@ -435,6 +508,7 @@ Start:
     out (254),a                  ; black border behind the loading/title art
     ld (BorderC),a
     ld (ScrOfs),a                ; default: render straight to the screen
+    ld (AceRule),a               ; optional ace-takes-all rule defaults OFF
     ld a,1
     ld (Difficulty),a            ; default medium
     ld a,r
@@ -597,11 +671,27 @@ PlayerTurn:
     ld a,(hl)
     cp 0xFF
     jr z,.wait
-    ld (hl),0xFF                 ; remove from hand before resolving (clean feedback)
-    ld (Played),a                ; A still holds the card id
+    ld (Played),a                ; keep the card IN the hand for now (no table overlap while choosing)
+    ; resolve the capture choice while the card is still in your hand
+    ld a,(Played)
+    call valueOf
+    call findAllCaptures
+    xor a
+    ld (ChoiceMade),a            ; default: nothing pre-chosen
+    ld a,(OptionN)
+    cp 2
+    jr c,.commit                 ; 0/1 options -> nothing to choose
+    call PlayerChooseCapture     ; pick now; played card stays shown (flashing) in your hand
+    ld (ChoiceVal),a
+    ld a,1
+    ld (ChoiceMade),a
+.commit:
+    ld a,(Cursor)                ; now take the card out of the hand and slide it to the table
+    ld hl,Player
+    call addHLA
+    ld (hl),0xFF
     xor a
     ld (HumanTurn),a            ; stop the cursor flashing as the play resolves
-    ; slide the card from the hand up to its table slot
     ld a,(Cursor)
     call HandCol
     ld (SlHandCol),a
@@ -1337,10 +1427,16 @@ ResolvePlay:
     ld a,(Who)
     or a
     jr nz,.aipick
+    ld a,(ChoiceMade)            ; player: use the choice made before the slide (card was in hand)
+    or a
+    jr z,.popt
+    ld a,(ChoiceVal)
+    jr .applyopt
+.popt:
     ld a,(OptionN)
     cp 2
     jr c,.opt0                   ; single option -> auto
-    call PlayerChooseCapture     ; player picks -> A = option index
+    call PlayerChooseCapture     ; fallback (normal flow pre-chooses in PlayerTurn)
     jr .applyopt
 .opt0:
     xor a
@@ -1384,6 +1480,9 @@ ResolvePlay:
     ld a,(TableN)
     or a
     jr nz,.done
+    ld a,(AceSweepOpt)
+    or a
+    jr nz,.done                  ; Scopa d'Assi: sweeping the table WITH AN ACE is not a scopa
     call IsLastPlay              ; no scopa on the final play of the round
     or a
     jr nz,.done
@@ -1678,9 +1777,48 @@ findAllCaptures:
     ld (FCval),a
     xor a
     ld (OptionN),a
+    ld (AceSweepOpt),a            ; default: not an ace-sweep
     ld a,(TableN)
     or a
     ret z
+    ; --- "asso piglia tutto": an ace sweeps the whole table (unless an ace is on it) ---
+    ld a,(AceRule)
+    or a
+    jr z,.sgstart                ; rule off
+    ld a,(FCval)
+    cp 1
+    jr nz,.sgstart               ; not an ace
+    ld e,0                       ; scan: is there already an ace on the table?
+.acesc:
+    ld hl,Table
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    call valueOf
+    cp 1
+    jr z,.sgstart                ; ace present -> ordinary single-capture (ace takes the ace)
+    inc e
+    ld a,(TableN)
+    cp e
+    jr nz,.acesc
+    ld a,(TableN)                ; no ace present -> one option: capture ALL cards
+    ld b,a
+    ld hl,1
+.acemk:
+    dec b
+    jr z,.acemkd
+    add hl,hl
+    jr .acemk
+.acemkd:
+    add hl,hl
+    dec hl                       ; HL = (1<<TableN)-1 = every table bit
+    ld d,h
+    ld e,l
+    call AddOption               ; Options[0] = full-table mask, OptionN = 1
+    ld a,1
+    ld (AceSweepOpt),a           ; flag it so ResolvePlay awards NO scopa (Scopa d'Assi)
+    ret
+.sgstart:
     ld e,0
 .sg:
     ld hl,Table
@@ -2744,10 +2882,11 @@ DecompressScr:
     jr nz,.l
     ret
 
-; SelectDifficulty: clean menu, read keys 1/2/3 -> Difficulty 0/1/2
+; SelectDifficulty: skill via 1/2/3; key 4 toggles "asso piglia tutto" (default OFF).
 SelectDifficulty:
     xor a
     ld (ScrOfs),a
+    ld (AceRule),a               ; rule starts OFF each time the menu is shown
     call ClsBlack
     ld hl,StrScopa
     ld d,11
@@ -2769,6 +2908,10 @@ SelectDifficulty:
     ld d,11
     ld e,17
     call PrintStr
+    ld hl,StrAssoSub             ; subtitle under the toggle
+    ld d,5
+    ld e,22
+    call PrintStr
     ld e,2                        ; tricolore-flavoured colouring
     ld a,0x46
     call FillAttrRow              ; SCOPA gold
@@ -2784,6 +2927,10 @@ SelectDifficulty:
     ld e,17
     ld a,0x42
     call FillAttrRow              ; HARD red
+    ld e,22
+    ld a,0x05
+    call FillAttrRow              ; subtitle dim cyan
+    call .drawasso               ; toggle line (row 20)
 .w:
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
     in a,(c)
@@ -2793,6 +2940,19 @@ SelectDifficulty:
     jr z,.med
     bit 2,a
     jr z,.hard
+    bit 3,a                      ; key 4 -> toggle the rule
+    jr z,.toggle
+    jr .w
+.toggle:
+    ld a,(AceRule)
+    xor 1
+    ld (AceRule),a
+    call .drawasso
+.trel:                           ; debounce: wait for key 4 to be released
+    ld bc,0xF7FE
+    in a,(c)
+    bit 3,a
+    jr z,.trel
     jr .w
 .easy:
     xor a
@@ -2805,11 +2965,33 @@ SelectDifficulty:
 .set:
     ld (Difficulty),a
     ret
+.drawasso:                       ; redraw the toggle line (row 20) from AceRule
+    ld a,(AceRule)
+    or a
+    ld hl,StrAssoOff
+    jr z,.dao
+    ld hl,StrAssoOn
+.dao:
+    ld d,4
+    ld e,20
+    call PrintStr
+    ld a,(AceRule)
+    or a
+    ld a,0x47                     ; OFF -> white
+    jr z,.dac
+    ld a,0x44                     ; ON  -> green
+.dac:
+    ld e,20
+    call FillAttrRow
+    ret
 
 StrSkill: defb "SELECT SKILL LEVEL",0
 StrEasy:  defb "1   EASY",0
 StrMed:   defb "2   MEDIUM",0
 StrHard:  defb "3   HARD",0
+StrAssoOff: defb "4  ASSO PIGLIA TUTTO  OFF",0
+StrAssoOn:  defb "4  ASSO PIGLIA TUTTO  ON ",0
+StrAssoSub: defb "(ACE TAKES WHOLE TABLE)",0
 
 ; FillAttrRow: E=char row, A=attr -> fill that whole attr row
 FillAttrRow:
@@ -3611,7 +3793,7 @@ PlayerChooseCapture:
 PaintChoice:
     push af
     call PaintAll
-    call DrawPlayedCard          ; keep the just-played card visible while choosing
+    call HighlightCursor         ; the played card is still in your hand -> flash it there (no table overlap)
     pop af
     call MaskToCapSel
     ld a,(TableN)

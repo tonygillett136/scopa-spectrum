@@ -14,7 +14,8 @@ memory map, build process, key decisions and gotchas. For the chronological stor
 ## 1. What it is / current feature set
 
 - Title + loading screens (vibrant colour close-ups of Napoletane card-tops, tricolore "SCOPA").
-- Skill select: EASY / MEDIUM / HARD.
+- Skill select: EASY / MEDIUM / HARD, plus an optional "Asso piglia tutto" rule toggle (key 4,
+  default OFF) — when on, an ace takes the whole table (Scopa d'Assi: that sweep scores no scopa).
 - Full 40-card Napoletane deck in **defined-monochrome** 48×64 art + a card back. The three
   **coppe figure cards** (Fante/Cavallo/Re) carry a small traced goblet pip top-left for suit
   clarity; denari/spade/bastoni unbadged (denari is then clear by elimination — Tony's call).
@@ -139,12 +140,15 @@ opp backs row 0, table row 8 (step from `TableStep` = 5/4/3 by TableN), hand row
 **Capture flash**: FlashTableCard flashes only a card's VISIBLE width (= step for an
 overlapped card, 6 for the last/played) so it doesn't bleed onto the card drawn on top.
 
-**Played card during capture-choice**: `DrawPlayedCard` draws `Played` at the slot just past
-the table cards (col 1+step*TableN clamped 26, row 8 — where SlideIn left it). Shared by
-`PaintChoice` AND `ShowCapture` so the played card stays visible & steady slide→choose→capture.
-NEEDED because a CAPTURING card is removed from the hand but never added to `Table[]` (it goes
-straight to the pile with its catch), so PaintAll alone would draw it nowhere — the old bug where
-the played card vanished during the "which to take?" prompt.
+**Played card during capture-choice (card-in-hand)**: the multi-capture choice runs *before* the
+card leaves the hand. `PlayerTurn` keeps the card in `Player[]`, calls `findAllCaptures`, and (if
+≥2 options) runs `PlayerChooseCapture` while the card is still in the hand — only then removes it,
+slides, and resolves (`ResolvePlay` uses the pre-chosen `ChoiceMade`/`ChoiceVal` instead of
+re-prompting). `PaintChoice` therefore `HighlightCursor`s the in-hand card (flash) — it is NOT
+drawn on the table, so it can't overlap a table card on a crowded table (Ange's bug). The candidate
+table cards flash in sync with the hand card. `DrawPlayedCard` (draw `Played` at the post-table slot
+col 1+step*TableN clamped 26, row 8) is still used by `ShowCapture` to show the card landing + taking
+its catch *after* the choice is confirmed.
 
 **Text**: PrintChar copies ROM font (0x3D00). PrintBig* does a 2× blow-up (DoubleNib LUT +
 ScreenDown) for the NEAPOLITAN banner. FillAttrRow colours a whole char-row.
@@ -162,9 +166,13 @@ PlayRound → ScoreRound → (if napola) ShowNeapolitan → ShowResults → togg
 check 11 → ShowWin*/loop.
 PlayRound: leader plays then follower (Leader chooses order), redeal 3 each when both
 hands empty, SweepToLast at deck-empty.
-PlayerTurn: O/P move cursor (attr-only), SPACE plays; multi-capture → PlayerChooseCapture
-(O/P cycle, candidates flash, SPACE confirm — the played card stays drawn via DrawPlayedCard).
-OppTurn: aiSelectPlay → ResolvePlay.
+PlayerTurn: O/P move cursor (attr-only), SPACE plays. On SPACE the card stays IN the hand while
+findAllCaptures runs; if ≥2 capture options → PlayerChooseCapture (O/P cycle, candidate table
+cards flash in sync with the flashing in-hand card, SPACE confirm) → ChoiceMade/ChoiceVal; only
+THEN remove from hand, slide, ResolvePlay. So the played card never overlaps the table during the
+choice. OppTurn: aiSelectPlay → ResolvePlay.
+SelectDifficulty (the pre-game skill screen): 1/2/3 pick Easy/Medium/Hard; key 4 toggles the
+optional "ASSO PIGLIA TUTTO" rule OFF↔ON (white/green; default OFF, reset each time the menu shows).
 
 ---
 
@@ -172,9 +180,19 @@ OppTurn: aiSelectPlay → ResolvePlay.
 
 `findAllCaptures(A=value)` → `Options[]` (table-index bitmasks) + `OptionN`. Singles take
 priority (if any single matches, only singles listed); else all subset-sum combinations.
-`ResolvePlay(A=cardid, C=who)`: MarkSeen; findAllCaptures; player picks / AI uses AIOpt /
-single auto; ShowCapture; move captured + played to pile; CompactTable; scopa if table
-swept and not the last play (IsLastPlay = handP+handO+deckleft ≤ 1).
+`ResolvePlay(A=cardid, C=who)`: MarkSeen; findAllCaptures; player uses the pre-chosen
+ChoiceMade/ChoiceVal (else PlayerChooseCapture) / AI uses AIOpt / single auto; ShowCapture;
+move captured + played to pile; CompactTable; scopa if table swept and not the last play
+(IsLastPlay = handP+handO+deckleft ≤ 1) and not an ace-sweep (AceSweepOpt).
+
+**Optional rule — "asso piglia tutto" (`AceRule`, default OFF, toggle on the skill screen).**
+When on, `findAllCaptures` for a played ace (value 1) with NO ace on the table and a non-empty
+table returns a single option = the full-table mask (capture everything) and sets `AceSweepOpt`.
+The other cases are already standard engine behaviour: an ace *with* an ace on the table takes
+that ace by single-card match; an ace on an empty table just drops. We implement the **Scopa
+d'Assi** reading — sweeping with an ace is NOT a scopa — so ResolvePlay skips the scopa award when
+`AceSweepOpt`. The AI needs no special-casing: it scores candidate plays through `findAllCaptures`,
+so it sees the ace-sweep capturing the whole table and values it.
 Helper `addHLA` (HL+=A, preserves BC/DE) is used for ALL base+index addressing — hand-rolled
 `ld bc,BASE; add hl,bc` clobbers loop counters (a bug class hit early on).
 
@@ -247,7 +265,8 @@ errors "missing define value"):
 - 4 AI picks sweep  5 AI protects settebello  6 napola=5 + Neapolitan screen
 - 7 play-card-id guard  8 full-table ShowCapture  9 slide+play guard  10 winner inspector
 - 11 capture-leftmost zip (underflow case)  12 drop 6→7 + laid-card flash  13 C-major scale
-- 14 second-to-last-card scopa (counts)  15 capture-choice render (played card stays visible)
+- 14 second-to-last-card scopa (counts)  15 capture-choice render (played card stays in hand)
+- 16 asso-piglia-tutto ace-sweep (table clears, no scopa)  17 ChoiceMade applies the chosen option
 Headless input note: keys_string is lossy during AI-turn windows (the keyboard isn't
 polled then) — can't auto-drive a full round. CRT is ground truth.
 
@@ -280,7 +299,10 @@ polled then) — can't auto-drive a full round. CRT is ground truth.
 - DONE since: title dedication + how-to-play + event jingles; scoring audit (pagat.com;
   fixed last-play scopa off-by-one); © glyph + attr-clash fix; border-after-jingle fix
   (BorderC); TrueType SCOPA!/NEAPOLITAN banners; results screen tricolore flag header +
-  green winners; **coppe cup pip**; **played-card-visible-during-capture-choice fix**.
+  green winners; **coppe cup pip**; capture-choice now runs with the card **in hand**
+  (no table overlap); optional **"asso piglia tutto"** rule (Scopa d'Assi, toggle, default OFF).
+- Git: PRIVATE repo github.com/tonygillett136/scopa-spectrum (pushed once; not auto-synced —
+  push new rounds when Tony asks).
 - CRT play-test of: silent-loader tape, cursor-flash, capture-flash precision, napola,
   the three skill levels, the cup pips, the capture-choice fix.
 - Deferred: N/M crowded-table scroll; border-during-jingle blip (flicker-free); raster
