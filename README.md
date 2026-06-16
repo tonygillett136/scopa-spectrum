@@ -69,7 +69,8 @@ python build_tap.py               # -> scopa.tap
 ```
 
 `TESTMODE` builds run scripted scenarios for headless verification:
-`sjasmplus -DTESTMODE=N scopa.asm` (N = 1..19; see `DEVELOPMENT.md`).
+`sjasmplus -DTESTMODE=N scopa.asm` (N = 1..20; see `DEVELOPMENT.md`).
+(TESTMODE 20 is a denari-figure card-art gallery for eyeballing the coin medallions.)
 
 ### Note on the card art
 

@@ -455,6 +455,31 @@ Start:
 .h19:
     jr .h19
     ENDIF
+    IF TESTMODE == 20
+    ; card-art gallery: the three denari FIGURES (8/9/10 of denari = ids 7/8/9) on the
+    ; table, so the coin-medallion art can be eyeballed in the real engine.
+    ld a,7
+    ld (Table),a                 ; Fante di denari
+    ld a,8
+    ld (Table+1),a               ; Cavallo di denari
+    ld a,9
+    ld (Table+2),a               ; Re di denari
+    ld a,3
+    ld (TableN),a
+    ld a,0xFF                    ; empty both hands
+    ld (Player),a
+    ld (Player+1),a
+    ld (Player+2),a
+    ld (Opp),a
+    ld (Opp+1),a
+    ld (Opp+2),a
+    xor a
+    ld (PPileN),a
+    ld (OPileN),a
+    call PaintAll
+.h20:
+    jr .h20
+    ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
     ld hl,Table

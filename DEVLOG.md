@@ -547,3 +547,23 @@ year 2026, type "Card game", comment crediting Angelo. Verified: parse round-tri
 are byte-identical to the tap. scopa.tzx 38489B (tap 38309B + ~180B TZX/metadata overhead). Like the
 tap, headerless-block instaload isn't headless-verifiable -> CRT/accurate-emu test (equivalent to the
 already-trusted tap by block-equality).
+
+## Denari figure coins — clearly-round medallions (2026-06-16)
+Tony/Ange feedback: the three denari FIGURE cards (Fante/Cavallo/Re = ids 7/8/9) didn't read as
+the coin suit. Root cause: placed faithfully the held coin renders only ~7px across and the Bayer
+dither mushes it into the body. Iterated with Tony on prototypes (NOT baked until approved):
+  1. shrunk corner suit-pip badge  -> rejected (looked like a redaction box);
+  2. in-place hollow ring redraw    -> rejected ("worse");
+  3. faithful enlarge-in-place      -> Tony: "better", chose 1.5x;
+  4. clearly-ROUND checker medallion (clean outline + checker interior + centre boss + 1px white
+     gap to the figure) at 1.5x     -> APPROVED (V2).
+The Cavallo's reference pose crowds the coin against the head, so we also RELOCATE its coin up-and-
+out (dx,dy in source px) to match the traditional "held aloft" composition before drawing the
+medallion. convert_deck.py: COIN{} table (per-figure cx,cy,r,scale,dx,dy), place_coin() (moves/
+enlarges the coin disc in the SOURCE, circular mask, neighbours untouched), medallion() (draws the
+clean round coin onto the final bitmap), and dm() refactored to accept a path OR a PIL image +
+return the fit transform so the coin lands exactly. deck.bin regenerated (md5 d1ddb99…); CODE
+UNCHANGED (10565B) — art lives entirely in deck.bin. Coppe cup-pip + all other cards untouched.
+Verified in the real engine via new TESTMODE 20 (denari-figure gallery -> PaintAll): all three coins
+read as clean round medallions on the cyan table (ZEsarUX). tap 38309B / tzx 38489B rebuilt. PENDING
+Tony CRT.

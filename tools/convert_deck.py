@@ -2,11 +2,44 @@
 """Convert all 40 Napoletane cards to defined-monochrome 48x64 (6x8 cells).
 Card id 0..39: id=(filenum-1); value=id%10+1; suit=id//10 (0 denari,1 coppe,2 spade,3 bastoni).
 deck.bin = 40 cards x 384 bitmap bytes (attrs are constant 0x78, set by the engine)."""
-import sys, os, glob
+import sys, os, glob, math
 sys.path.insert(0,os.path.dirname(__file__))
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageDraw
 import mono_outline as M
 CW,CH=6,8
+
+# --- denari figure coins -------------------------------------------------
+# The three denari figures (Fante/Cavallo/Re) hold (or, for the Re, stand
+# beside) a suit coin that - placed faithfully - renders only ~7px across and
+# mushes in the dither. We enlarge it x1.5 and redraw it as a clean ROUND
+# checker medallion (clean outline + centre boss + 1px white gap to the figure)
+# so the denari suit reads at a glance. Coords are source pixels in the
+# reference photos. dx/dy relocate the Cavallo coin up-and-out (its reference
+# pose holds it crowded against the head), matching the traditional composition.
+# key = file index (i): 7=Fante(08), 8=Cavallo(09), 9=Re(10).
+COIN={7:(397,362,137,1.5,0,0), 8:(447,217,117,1.5,-82,-32), 9:(1035,400,137,1.5,0,0)}
+
+def place_coin(im,cx,cy,r,S,dx,dy):
+    """Relocate/enlarge the coin disc in the SOURCE photo (only when moving it,
+    i.e. the Cavallo); the medallion overlay handles the in-place coins."""
+    if dx==0 and dy==0: return im
+    hs=int(r*1.18); crop=im.crop((cx-hs,cy-hs,cx+hs,cy+hs))
+    ns=int(2*hs*S); big=crop.resize((ns,ns),Image.LANCZOS)
+    ImageDraw.Draw(im).ellipse((cx-r-6,cy-r-6,cx+r+6,cy+r+6),fill=(255,255,255))  # erase old
+    mask=Image.new('L',(ns,ns),0); c=ns/2
+    ImageDraw.Draw(mask).ellipse((c-r*S,c-r*S,c+r*S,c+r*S),fill=255)
+    im.paste(big,(int(cx+dx-c),int(cy+dy-c)),mask); return im
+
+def medallion(b,cx,cy,r):
+    """Draw a clean round checker-medallion coin onto the final bitmap:
+    outline circle, checker interior + centre boss, and a 1px white gap."""
+    W,H=CW*8,CH*8
+    for y in range(max(1,int(cy-r-3)),min(H-1,int(cy+r+4))):
+        for x in range(max(1,int(cx-r-3)),min(W-1,int(cx+r+4))):
+            d=math.hypot(x-cx,y-cy)
+            if d<=r-0.7:    b[y][x]=1 if (d<=1.15 or M.BAYER[y&7][x&7]<0.5) else 0
+            elif d<=r+0.45: b[y][x]=1                       # clean round outline
+            elif d<=r+1.5:  b[y][x]=0                       # 1px white gap to figure
 
 def _tighten(im,thr=215):
     g=ImageOps.grayscale(im); bb=ImageOps.invert(g.point(lambda p:0 if p<thr else 255)).getbbox()
@@ -43,8 +76,21 @@ def stamp_badge(b, bits, bx=2, by=2):
         for x in range(bw):
             if bits[y][x] and 0<=bx+x<CW*8 and 0<=by+y<CH*8: b[by+y][bx+x]=1
     return b
-def dm(jpg,margin=4,darkthr=42,edgethr=82,blur=0.6,gamma=1.5):
-    W,H=CW*8,CH*8; g=M.fit(jpg,W,H,margin)
+def _fit(src,W,H,margin):
+    """Like mono_outline.fit but accepts a path OR a PIL image, and also returns
+    the source->canvas transform (scale + paste offset + bbox-crop origin) so the
+    coin medallion can be positioned exactly."""
+    im=src if hasattr(src,"convert") else Image.open(src)
+    im=im.convert("L"); bb=im.getbbox(); bx,by=(bb[0],bb[1]) if bb else (0,0)
+    if bb: im=im.crop(bb)
+    iw,ih=im.size; aw,ah=W-2*margin,H-2*margin
+    sc=min(aw/iw,ah/ih); nw,nh=int(iw*sc),int(ih*sc)
+    im=im.resize((nw,nh),Image.LANCZOS); ox,oy=(W-nw)//2,(H-nh)//2
+    canvas=Image.new("L",(W,H),255); canvas.paste(im,(ox,oy))
+    return canvas,sc,ox,oy,bx,by
+
+def dm(src,margin=4,darkthr=42,edgethr=82,blur=0.6,gamma=1.5,ret_fit=False):
+    W,H=CW*8,CH*8; g,sc,ox,oy,bx,by=_fit(src,W,H,margin)
     e=g.filter(ImageFilter.FIND_EDGES); s=g.filter(ImageFilter.GaussianBlur(blur))
     lp=s.load(); ep=e.load(); b=[[0]*W for _ in range(H)]
     for y in range(H):
@@ -56,7 +102,7 @@ def dm(jpg,margin=4,darkthr=42,edgethr=82,blur=0.6,gamma=1.5):
     for x in range(W): b[0][x]=1;b[H-1][x]=1
     for y in range(H): b[y][0]=1;b[y][W-1]=1
     for x,yv in[(0,0),(1,0),(0,1),(W-1,0),(W-2,0),(W-1,1),(0,H-1),(1,H-1),(0,H-2),(W-1,H-1),(W-2,H-1),(W-1,H-2)]: b[yv][x]=0
-    return b
+    return (b,sc,ox,oy,bx,by) if ret_fit else b
 def bmpblob(b):
     out=bytearray()
     for y in range(CH*8):
@@ -73,9 +119,16 @@ CUP_BITS=cup_badge(files[11])   # source goblet = "12_Due_di_coppe.jpg"
 deck=bytearray(); imgs=[]
 for i,f in enumerate(files):
     value=(i%10)+1; suit=i//10
-    b=dm(f,darkthr=58,gamma=2.4) if value>=8 else dm(f)   # lighter for dense figures
-    if suit==1 and value>=8:        # coppe figures (Fante/Cavallo/Re): add cup suit pip
-        stamp_badge(b,CUP_BITS)
+    if i in COIN:                   # denari figures: enlarge/relocate coin + medallion
+        cx,cy,r,S,dx,dy=COIN[i]
+        src=place_coin(Image.open(f).convert('RGB'),cx,cy,r,S,dx,dy)
+        b,sc,ox,oy,bx,by=dm(src,darkthr=58,gamma=2.4,ret_fit=True)
+        medallion(b, ox+(cx+dx-bx)*sc, oy+(cy+dy-by)*sc, r*S*sc)
+    elif value>=8:
+        b=dm(f,darkthr=58,gamma=2.4)         # lighter for dense figures
+        if suit==1: stamp_badge(b,CUP_BITS)  # coppe figures: add cup suit pip
+    else:
+        b=dm(f)
     deck+=bmpblob(b)
     M.png(b,CW*8,CH*8,f"/tmp/deck_{i:02d}.png",scale=4); imgs.append(f"/tmp/deck_{i:02d}.png")
 # card back: lattice pattern + border
