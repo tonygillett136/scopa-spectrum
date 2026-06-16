@@ -567,3 +567,19 @@ UNCHANGED (10565B) — art lives entirely in deck.bin. Coppe cup-pip + all other
 Verified in the real engine via new TESTMODE 20 (denari-figure gallery -> PaintAll): all three coins
 read as clean round medallions on the cyan table (ZEsarUX). tap 38309B / tzx 38489B rebuilt. PENDING
 Tony CRT.
+
+## Web showcase site + Cloudflare Pages (2026-06-16)
+Built a static showcase site (site/) and deployed to Cloudflare Pages project "scopa-spectrum"
+(https://scopa-spectrum.pages.dev). Stunning Italian/Neapolitan theme (tricolore + cyan felt +
+Cinzel headings, self-hosted). Sections: hero (loading screen), in-browser PLAY, screenshots
+(title/gameplay/results/howto - captured from ZEsarUX via the new matrix-input method, see
+[[zesarux-live-keyboard-input]]), faithful-deck showcase (hero strip + 40-card grid rendered from
+deck.bin), features, downloads (.tzx + .tap), story. In-browser emulator = JSSpeccy 3.2 (GPL, vendored
+in emu/), loads scopa.sna via openUrl (snapshot = instant title, no tape-loader risk).
+KEY GOTCHA: JSSpeccy needs SharedArrayBuffer -> the site MUST send COOP:same-origin + COEP:require-corp
+(site/_headers) or the emulator core silently won't run (blank screen). require-corp then blocks
+cross-origin Google Fonts -> SELF-HOSTED Cinzel (fonts/). Verified on the live site: COOP/COEP present
+on all responses, .wasm = application/wasm, crossOriginIsolated=true. CAVEAT: JSSpeccy renders to a
+WebGL canvas that headless Chromium can't screenshot (reads back all-black) -> could NOT visually verify
+the in-browser game headlessly; needs a real-browser play-test (Tony). Custom domain
+scopa-spectrum.gillett-projects.com NOT yet set (wrangler has no pages-domain command -> dashboard or API).

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCOPA — an Italian card game for the 48K ZX Spectrum</title>
+<meta name="description" content="Scopa, the Italian card game, hand-written in Z80 machine code for an unmodified 48K Sinclair ZX Spectrum. Play it in your browser, or download the tape. A recreation of Angelo Colucci's lost game.">
+<meta property="og:title" content="SCOPA for the 48K ZX Spectrum">
+<meta property="og:description" content="The Italian card game Scopa, in Z80 machine code for a real 48K ZX Spectrum. Play in-browser or download the tape.">
+<meta property="og:image" content="img/loading.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="img/title.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="tricolore-bar"></div>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="kicker">An Italian card game for the&nbsp;48K&nbsp;ZX&nbsp;Spectrum</p>
+      <h1 class="wordmark"><span class="g">S</span><span class="w">C</span>O<span class="w">P</span><span class="r">A</span></h1>
+      <p class="lede">The classic Neapolitan card game <em>Scopa</em>, hand-written in pure Z80
+        machine code for an unmodified 48K Sinclair ZX&nbsp;Spectrum. One player against a
+        genuinely strong AI, the full <em>Napoletane</em> deck, match to&nbsp;eleven.</p>
+      <p class="dedication">In memory of a friend’s lost game —<br>
+        <span>based on an original ZX&nbsp;Spectrum game by&nbsp;Angelo&nbsp;Colucci.</span></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#play">▶&nbsp; Play in your browser</a>
+        <a class="btn btn-ghost" href="#download">⤓&nbsp; Download the tape</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="img/loading.png" alt="Scopa loading screen: a Neapolitan knight on horseback holding a gold coin, with the SCOPA wordmark over the Italian tricolore" loading="eager">
+      <p class="hero-art-cap">The tape loading screen — drawn pixel by pixel on the Spectrum.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ PLAY ============ -->
+<section id="play" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">Play it now</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">No tape, no emulator to install — the real Spectrum binary runs right here,
+      in a JavaScript Spectrum. Press <strong>▶</strong> and it boots straight to the title screen.
+      Click the screen to give it the keyboard, then press <kbd>SPACE</kbd> to start.</p>
+
+    <div class="play-grid">
+      <div class="emu-frame">
+        <div id="jsspeccy"></div>
+      </div>
+      <aside class="controls-card">
+        <h3>Controls</h3>
+        <ul class="keys">
+          <li><kbd>O</kbd><kbd>P</kbd><span>Move the cursor over your hand</span></li>
+          <li><kbd>SPACE</kbd><span>Play the selected card / confirm</span></li>
+          <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>Easy / Medium / Hard</span></li>
+          <li><kbd>4</kbd><span>Toggle the optional <em>Asso piglia tutto</em> rule</span></li>
+          <li><kbd>H</kbd><span>How to play</span></li>
+        </ul>
+        <p class="tip">Tip: click the emulator first so it grabs the keyboard. The card you
+          play stays in your hand while you choose what to capture, so it never hides the table.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SCREENSHOTS ============ -->
+<section id="shots" class="band">
+  <div class="wrap">
+    <h2 class="section-title">In play</h2>
+    <div class="tricolore-rule"></div>
+    <div class="shots-grid">
+      <figure><img src="img/title.png" alt="Title screen with a fan of three Neapolitan court cards"><figcaption>Title screen</figcaption></figure>
+      <figure><img src="img/gameplay.png" alt="A hand in progress: the cyan felt, the opponent's face-down cards, the table, and your hand"><figcaption>A hand in progress</figcaption></figure>
+      <figure><img src="img/results.png" alt="End-of-deal scoring screen showing Carte, Denari, Settebello, Primiera and more"><figcaption>Round scoring</figcaption></figure>
+      <figure><img src="img/howto.png" alt="The in-game how-to-play screen"><figcaption>How to play</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE DECK / ART ============ -->
+<section id="deck" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">A faithful Neapolitan deck</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">Every one of the forty cards is rendered in <em>defined monochrome</em> —
+      crisp black linework with ordered-dither shading — traced faithfully from a real
+      <em>Napoletane</em> deck. The four suits (coins, cups, swords, clubs), the settebello,
+      and the court figures with their hand-placed suit emblems, all on a single 48&nbsp;KB machine.</p>
+    <figure class="deck-hero"><img src="img/cards_hero.png" alt="Five cards close up: the seven of coins, ace of cups, king of coins, knight of cups and king of clubs"></figure>
+    <figure class="deck-full"><img src="img/deck.png" alt="The complete forty-card Neapolitan deck rendered for the ZX Spectrum">
+      <figcaption>The complete forty-card deck.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="band">
+  <div class="wrap">
+    <h2 class="section-title">What’s inside</h2>
+    <div class="tricolore-rule"></div>
+    <div class="features">
+      <div class="feature"><span class="fi">♠</span><h3>Pure Z80</h3><p>100% hand-written machine code on an unmodified 48K Spectrum — no extra hardware, no 128K.</p></div>
+      <div class="feature"><span class="fi">⚔</span><h3>A strong opponent</h3><p>The AI weighs every legal play with a tuned value function. Easy, Medium and Hard — and it counts cards on Hard. It plays fair: it never sees your hand.</p></div>
+      <div class="feature"><span class="fi">🪙</span><h3>Full scoring</h3><p>Carte, Denari, the Settebello, Primiera, every Scopa, plus the regional Napola and <em>palle del cane</em> bonuses. First to eleven wins.</p></div>
+      <div class="feature"><span class="fi">🎴</span><h3>Authentic art</h3><p>The forty Neapolitan cards, traced faithfully and rendered in defined monochrome on the Spectrum’s screen.</p></div>
+      <div class="feature"><span class="fi">🃏</span><h3>Optional rule</h3><p><em>Asso piglia tutto</em> — the ace sweeps the whole table — included as a toggle, off by default, in the <em>Scopa d’Assi</em> reading.</p></div>
+      <div class="feature"><span class="fi">📼</span><h3>Loads from tape</h3><p>A silent multi-part loader boots straight to the title screen on real hardware — TZX and TAP both provided.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOWNLOAD ============ -->
+<section id="download" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">Download &amp; play on real hardware</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">Grab a tape image for your real Spectrum or your favourite emulator
+      (Fuse, ZEsarUX, Spectaculator…). Both load identically; the TZX also carries title,
+      author and year metadata.</p>
+    <div class="dl-row">
+      <a class="dl-card" href="scopa.tzx" download>
+        <span class="dl-fmt">.TZX</span>
+        <span class="dl-name">scopa.tzx</span>
+        <span class="dl-meta">Recommended · with archive metadata · ~38 KB</span>
+      </a>
+      <a class="dl-card" href="scopa.tap" download>
+        <span class="dl-fmt">.TAP</span>
+        <span class="dl-name">scopa.tap</span>
+        <span class="dl-meta">Plain tape image · ~38 KB</span>
+      </a>
+    </div>
+    <p class="dl-note">On a real 48K Spectrum: <code>LOAD ""</code> and play the tape. It boots
+      itself to the title screen.</p>
+  </div>
+</section>
+
+<!-- ============ STORY ============ -->
+<section id="story" class="band">
+  <div class="wrap narrow">
+    <h2 class="section-title">The story</h2>
+    <div class="tricolore-rule"></div>
+    <p>Years ago a friend, <strong>Angelo Colucci</strong>, wrote a game of Scopa for the ZX&nbsp;Spectrum.
+      Its hand-drawn cards were superb — and it was lost to time.</p>
+    <p>This is a recreation, built to honour it: the Italian card game in full, written from
+      scratch in Z80 machine code for a real 48K machine. The rules and scoring were checked
+      against the standard Neapolitan game, the card art traced faithfully from a physical deck,
+      and the AI tuned by tens of thousands of self-played games. It was developed and tested
+      against real hardware on a CRT.</p>
+    <p class="story-sign">— Tony Gillett, 2026</p>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="tricolore-bar"></div>
+  <div class="wrap footer-inner">
+    <p class="foot-title">SCOPA · 48K ZX Spectrum</p>
+    <p class="foot-credits">
+      Game © Tony Gillett 2026 · based on an original by Angelo Colucci.<br>
+      In-browser emulation by <a href="https://github.com/gasman/jsspeccy3" rel="noopener">JSSpeccy&nbsp;3</a> (Matt Westcott, GPL&nbsp;v3).<br>
+      Card art is derived from a physical Napoletane deck and rendered in monochrome for the Spectrum.
+    </p>
+  </div>
+</footer>
+
+<!-- ============ EMULATOR ============ -->
+<script src="emu/jsspeccy.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function () {
+    JSSpeccy(document.getElementById('jsspeccy'), {
+      machine: 48,
+      zoom: 2,
+      sandbox: true,
+      autoStart: false,
+      openUrl: 'scopa.sna'
+    });
+  });
+</script>
+</body>
+</html>

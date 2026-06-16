@@ -1,0 +1,6 @@
+# Cross-origin isolation so JSSpeccy can use SharedArrayBuffer (the emulator
+# core won't run without this). All assets are same-origin, so require-corp
+# blocks nothing.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
