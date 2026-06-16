@@ -538,3 +538,12 @@ TUNED weights it adds ~NOTHING (0.50-0.507, within noise) AND is ~4x slower/move
 well-tuned 1-ply reactive heuristic already captures the cheap-lookahead value; worst-case lookahead is
 too pessimistic under hidden info. NOT implemented on the Z80 (a proper Monte-Carlo lookahead might do
 better but is far too heavy for 3.5MHz). code 10565B (1723B free); tap 38309B. PENDING Tony+Ange CRT.
+
+## TZX tape (2026-06-16)
+Tony asked for a .tzx. build_tzx.py wraps scopa.tap into a TZX (ZXTape! v1.20): each TAP block ->
+a Standard-Speed Data Block (ID 0x10) with byte-identical [flag][data][checksum] (loads exactly as
+the .tap on real HW), plus an Archive Info block (ID 0x32): title "Scopa", author "Tony Gillett",
+year 2026, type "Card game", comment crediting Angelo. Verified: parse round-trips, the 7 data blocks
+are byte-identical to the tap. scopa.tzx 38489B (tap 38309B + ~180B TZX/metadata overhead). Like the
+tap, headerless-block instaload isn't headless-verifiable -> CRT/accurate-emu test (equivalent to the
+already-trusted tap by block-equality).

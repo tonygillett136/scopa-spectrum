@@ -11,7 +11,8 @@ to 11, with the full Neapolitan (Napoletane) deck rendered in defined-monochrome
 ## Playing it
 
 Load `scopa.tap` on a real 48K Spectrum or an accurate emulator. It boots from a silent
-multi-part tape loader straight to the title screen.
+multi-part tape loader straight to the title screen. `scopa.tzx` is the same tape in the
+richer TZX container (byte-identical loading, plus archive metadata — title/author/year).
 
 - **Title screen**: `SPACE` to start, `H` for how-to-play.
 - **Skill select**: `1` Easy, `2` Medium, `3` Hard. `4` toggles the optional **Asso piglia
@@ -86,7 +87,7 @@ strictly faithful to that reference deck.
 | `deck.bin` | 40 cards + 1 back, 384 bitmap bytes each, INCBIN @0xC000 |
 | `title.rle` / `title.scr` / `loading.scr` | Screens |
 | `*_banner.bin` | SCOPA! / NEAPOLITAN / tricolore banners |
-| `build_tap.py` | Builds `scopa.tap` (silent multi-part loader) |
+| `build_tap.py` / `build_tzx.py` | Build `scopa.tap` (silent multi-part loader) and wrap it as `scopa.tzx` (+ archive metadata) |
 | `tools/` | Art pipeline (`convert_deck.py`, `make_screens.py`, `mono_outline.py`) + `ai_tune.py` (host-side AI weight tuner) |
 | `DEVELOPMENT.md` | Architecture / memory map / build / gotchas reference |
 | `DEVLOG.md` | Chronological build log |
