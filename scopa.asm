@@ -35,6 +35,7 @@ CatWin:   defs 5
 PBest:    defs 4
 Tmp0:     defs 1
 Tmp1:     defs 1
+BlitCrow: defs 1                  ; BlitCard/EraseCardRegion char-row counter (LDI clobbers BC)
 Options:  defs 32
 OptionN:  defs 1
 ChoiceIdx: defs 1
@@ -552,6 +553,26 @@ Start:
     call OppTurn
 .h25:
     jr .h25
+    ENDIF
+    IF TESTMODE == 27
+    ; EraseCardRegion correctness: paint a board (screen + shadow), stamp a card onto the LIVE
+    ; SCREEN only at cell (13,8), then EraseCardRegion it. The screen region must be restored to
+    ; the shadow background -> the driver reads screen vs shadow for the whole 6x8 card and they
+    ; must byte-match. Deterministic; no deal randomness needed.
+    call NewMatch
+    call NewRound
+    call PaintAll
+    xor a
+    ld (ScrOfs),a
+    ld d,13
+    ld e,8
+    ld a,5
+    call BlitCard                ; stray card on the screen only
+    ld d,13
+    ld e,8
+    call EraseCardRegion         ; restore from shadow
+.h27:
+    jr .h27
     ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
@@ -3976,10 +3997,13 @@ SlideIn:
 ; INTERLEAVED per char-row: each char-row's 8 pixel lines AND its colour row are restored
 ; together, top-to-bottom, so the colour stays locked to the pixels ahead of the raster
 ; (the old version restored ALL pixels then ALL colour -> the colour lagged -> colour tearing).
+; Optimised to match BlitCard: 8 pixel lines unrolled with LDI (no inner counter / per-line
+; bc-save), char-row count in memory. ~40% faster so the slide's erase+draw fits ahead of
+; the raster even at the top of the screen (tear-free for the CPU's slides too).
 EraseCardRegion:
     ld a,8                       ; 8 char-rows, top to bottom
+    ld (BlitCrow),a
 .crow:
-    push af                      ; remaining char-rows
     push de                      ; col (D) / char-row (E)
     ; -- bitmap: this char-row's 8 pixel lines (shadow -> screen) --
     ld a,e
@@ -3993,21 +4017,22 @@ EraseCardRegion:
     rrca
     or d
     ld l,a                       ; HL = screen addr of (col, char-row), pixel line 0
-    ld b,8
-.bln:
+    DUP 8
     push hl                      ; screen line start
     ld d,h
     ld e,l                       ; DE = screen dst
     ld a,h
     add a,0x20
     ld h,a                       ; HL = shadow src (screen + 0x2000)
-    push bc
-    ld bc,6
-    ldir
-    pop bc
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi                          ; 6 bytes shadow -> screen
     pop hl                       ; screen line start
     inc h                        ; next pixel line within this char-row
-    djnz .bln
+    EDUP
     ; -- colour: this char-row's 6 cells (shadow -> screen) --
     pop de                       ; col (D) / char-row (E)
     push de                      ; keep for the next char-row
@@ -4029,14 +4054,19 @@ EraseCardRegion:
     ld a,h
     add a,0x20
     ld h,a                       ; HL = shadow attr src
-    ld bc,6
-    ldir
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi                          ; 6 attr cells shadow -> screen
     ; -- next char-row --
     pop de                       ; col (D) / char-row (E)
     inc e
-    pop af
+    ld a,(BlitCrow)
     dec a
-    jr nz,.crow
+    ld (BlitCrow),a
+    jp nz,.crow
     ret
 
 ; HandAttrHL: A=hand slot -> HL = attr address of that card (row 16)
@@ -4479,38 +4509,45 @@ BlitCard:
     pop hl                       ; card source
     ld d,b
     ld e,c                       ; DE = screen bitmap dst (top-left cell)
-    ld a,64                      ; 64 pixel lines
-.brow:
-    push af
-    push de
-    ld bc,6
-    ldir                         ; one 6-byte pixel line (card src HL -> screen DE)
+    ; INTERLEAVED per char-row (8 char-rows): 8 pixel lines THEN the 6 colour cells, so colour
+    ; stays locked to the pixels ahead of the raster (the colour-tear fix). The 8 lines are
+    ; unrolled with LDI (no inner counter, no per-line boundary test) and the char-row count is
+    ; held in memory because LDI clobbers BC -- ~40% faster than the old LDIR-per-line loop, so
+    ; the whole erase+draw now finishes before the raster reaches the top of the screen.
+    ld a,8
+    ld (BlitCrow),a
+.crow:
+    DUP 8                        ; 8 pixel lines of this char-row
+    push de                      ; line start
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi                          ; 6 bytes card src (HL) -> screen (DE)
     pop de
-    inc d                        ; next pixel line
-    ld a,d
-    and 7
-    jr nz,.nx                    ; still within this char-row's 8 lines
-    ; -- char-row done: write its colour now, then step IX a row down --
-    ld (ix+0),0x78
+    inc d                        ; next pixel line (+0x100, same low byte)
+    EDUP
+    ld (ix+0),0x78               ; this char-row's 6 colour cells
     ld (ix+1),0x78
     ld (ix+2),0x78
     ld (ix+3),0x78
     ld (ix+4),0x78
     ld (ix+5),0x78
     ld bc,32
-    add ix,bc
-    ; -- step the bitmap dst to the next char-row --
-    ld a,e
+    add ix,bc                    ; attr ptr -> next char-row
+    ld a,e                       ; step the bitmap dst to the next char-row
     add a,0x20
     ld e,a
-    jr c,.nx
+    jr c,.nx                     ; crossed a third boundary -> keep the +8 in D
     ld a,d
-    sub 8
+    sub 8                        ; else undo the 8 inc-d's, stay in this third
     ld d,a
 .nx:
-    pop af
+    ld a,(BlitCrow)
     dec a
-    jr nz,.brow
+    ld (BlitCrow),a
+    jp nz,.crow                  ; jp (not jr): the unrolled body is > 127 bytes
     pop de                       ; discard saved col/char-row
     pop ix
     ret
