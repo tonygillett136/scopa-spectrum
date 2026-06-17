@@ -832,3 +832,21 @@ helpers FlashCaptured / FlashCardRegion. VERIFIED: forced full-table captures bo
 opp (TESTMODE 32) OPileN 2 / TableN 5 face-up at the slot; player (TESTMODE 33, SPACE-driven) PPileN 2 /
 TableN 5 flashing in hand; non-crowded play still slides. Threshold (cp 6) is one tunable byte. code 382 B
 free; tap 42935B / tzx 43118B.
+
+## Re-pack band-delta reverted (regression) + demo in-place + bias proof (2026-06-17)
+The R34 band-limited delta blit for the table re-pack was a regression: the per-cell copy is ~400 T/cell
+(I'd estimated ~180), so copying the whole table band per frame can't stay ahead of the beam -> it tore
+WORSE than the plain blit, and the extra per-frame diff made it slower. Reverted ZipCompact to the full
+Blit (original behaviour/speed). DeltaBlit stays for PaintAll's discrete redraws (few cells -> fast +
+tear-free, its good case). FUNDAMENTAL: the table band is in the middle of the screen, beam reaches it
+~28,672 T after frame start; in that window the Z80 can copy ~1,365 bytes but the band is ~2,048 -- so a
+whole-band change can't be fully drawn before the beam arrives. A smooth re-pack re-changes the whole band
+every frame -> can't be tear-free with a simple copy.
+
+Demo in-place (Tony): DemoPlayerTurn now keeps the card flashing in-hand on a full-table capture (mirrors
+the human PlayerTurn); the opponent already reveals face-up in place via OppTurn. TESTMODE 34: PPileN 2 /
+TableN 5, demo clean.
+
+Bias (Tony flagged 3x): AI verified byte-for-byte symmetric (every eval term table/card-based, no fixed
+side; DemoPlayerTurn == OppTurn decision) + opening leader alternates (R31). Host-sim 40,000 matches at the
+demo config = 49.95% player win rate -> fair within noise. Variance, not a bug. code 282 B free.
