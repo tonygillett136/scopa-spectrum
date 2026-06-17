@@ -714,3 +714,27 @@ and 0 = TitleRle) to capture the sword scopa.z80, then reverted and rebuilt prod
 tap/tzx/sna + both .z80s, added the Sound key + an "It plays itself" feature card + a title tip to
 index.html, redeployed to Cloudflare; verified live (root 200 + COOP/COEP, new copy, downloads byte-match).
 code CodeEnd=0xAACF (~1329B free); tap 42300B / tzx 42483B. PENDING Tony CRT play-test of the demo + sound.
+
+## Opponent card-slide start position (2026-06-17)
+Tony (CRT + in-browser, in regular play AND the demo): the CPU's played card often started its
+slide from the wrong place -- a card visibly on the left would animate in from the right. CAUSE: the
+CPU's face-down BACKS were drawn PACKED left-to-right by count (RenderShadow drew CountOpp identical
+backs at cols 6,13,20), but OppTurn started the slide from the played card's logical SLOT column
+(HandCol(slot)). With a full hand those coincide; once the hand had a GAP (a card already played) they
+diverged -- the slide began at an empty column. The player's face-up hand never had this: it is drawn
+at real slot columns (gaps preserved) and slides from the slot column.
+
+Tony's design choice (mirror the player's hand, gaps and all -- not "shrink from the right"): FIX =
+(1) RenderShadow's opponent loop rewritten to mirror the player loop -- ld ix,Opp / ld b,3 / ld d,6,
+skip 0xFF, draw a BACK at col d, advance d every slot -> a back at each occupied slot's REAL column
+(6 + 7*slot), so a played card leaves a gap exactly where it was (the old CountOpp packed-draw and its
+.notop early-skip are gone). (2) OppTurn reverted to slide from the played card's true slot column
+(push the slot / HandCol(slot)), which now matches where the back was drawn. LESSON: the render and the
+animation must agree on positions -- drawing N identical items packed-by-count while animating from
+logical slot indices is consistent only when there are no gaps; drive both off the same model.
+
+TESTMODE 25 = CPU-hand-position regression (deal a round, punch a gap at slot 1 -> backs at cols 6 and
+20 with a hole at 13; the AI plays slot 0 or 2 -> SlHandCol == that slot's real column). VERIFIED in
+ZEsarUX: the gapped fan renders with the hole in the right place, the slide start matches, and the
+normal game + self-play demo are both clean. code CodeEnd=0xAAD7 (~1321B free); tap 42308B / tzx 42491B;
+both title .z80 snapshots recaptured and the site redeployed (live downloads byte-match).
