@@ -850,3 +850,13 @@ TableN 5, demo clean.
 Bias (Tony flagged 3x): AI verified byte-for-byte symmetric (every eval term table/card-based, no fixed
 side; DemoPlayerTurn == OppTurn decision) + opening leader alternates (R31). Host-sim 40,000 matches at the
 demo config = 49.95% player win rate -> fair within noise. Variance, not a bug. code 282 B free.
+
+## Hybrid table re-pack: smooth slice when it fits, snap when crowded (2026-06-17)
+Tony's "best of both worlds": at the start of a re-pack, ZipMoveSpan measures the moving block's width
+(leftmost..rightmost column any shifting card touches = max+6 - min). If <=18 cols, the smooth slide
+repaints ONLY that moving slice each frame (BlitSlice: per-char-row LDIR of cols c0..c0+W over the table
+band rows 8..15) -- small enough (~189W+1183 T/char-row, < the ~5152 T/row beam budget) to finish ahead
+of the beam -> tear-free smooth motion. If wider (the rare leftmost-of-a-full-table capture), ZipSnap
+jumps the survivors to their targets and one full Blit shows it -- a single brief blink, not sustained
+tearing. VERIFIED: TESTMODE 35 (W=13) smooth -> cards on 1,6,11; TESTMODE 36 (W=31) snap -> 1,6,11,16,21;
+slice render correct; demo re-packs clean. Threshold (cp 19) one tunable byte. code 47 B free (TIGHT).
