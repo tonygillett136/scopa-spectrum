@@ -4,8 +4,23 @@ BACK  = 40
     IFNDEF TESTMODE
 TESTMODE = 0
     ENDIF
+; FASTSIM: 1 for the headless match-sims (37 bias / 41 Esperto integration) -> render/delay
+; gates compile in. Always 0 in the shipped build (TESTMODE 0), so zero production cost.
+FASTSIM = 0
+    IF TESTMODE == 37
+FASTSIM = 1
+    ENDIF
+    IF TESTMODE == 41
+FASTSIM = 1
+    ENDIF
+    IF TESTMODE == 43
+FASTSIM = 1
+    ENDIF
 ; ---- state ----
-    ORG 0xB000
+; State block was at 0xB000 (code ceiling). Slid up to 0xB400 to hand ~1KB more code room
+; for the Esperto card-counting AI (endgame minimax). State uses ~0x140B; stack at 0xBFF0
+; leaves ~2.5KB below it for the stack + the minimax search frames.
+    ORG 0xB400
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -87,6 +102,19 @@ CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen t
 DemoMode:   defs 1                 ; 1 = attract / CPU-vs-CPU self-play demo is running
 HandPtr:    defs 2                 ; aiSelectPlay's hand source: Opp normally, Player for the demo's player turn
 SoundOn:    defs 1                 ; user sound toggle (skill menu); 1 = on (default)
+
+; ---- Esperto endgame: perfect-information minimax of the final round ----
+; Once the deck is empty the unseen cards ARE the opponent's hand, so the AI can read the
+; real Player[]/Opp[] arrays (legitimate deduction) and search the last <=6 plies exactly.
+RootWho:   defs 1                  ; side the search maximises (0=player, 1=opp)
+CurDepth:  defs 1                  ; recursion depth (0..6); indexes Frames[]
+LfTN:      defs 1                  ; LeafEval snapshot: TableN
+LfPP:      defs 1                  ; .. PPileN
+LfOP:      defs 1                  ; .. OPileN
+LfPM:      defs 1                  ; .. PMatch (ScoreRound bumps the match totals -> restored)
+LfOM:      defs 1                  ; .. OMatch
+FRSZ = 32
+Frames:    defs FRSZ*7             ; per-depth node frame: undo snapshot + loop locals + a/b window
 
     ORG 0x8000
 Start:
@@ -976,6 +1004,271 @@ FM37:                            ; play one full match -> A = winner (0 = player
 .h5:
     jr .h5
     ENDIF
+    IF TESTMODE == 43
+    ; STRENGTH: Esperto(Opp) vs Hard(Player), 30 matches (FastSim, per-side difficulty via
+    ; SimMixed). Esperto should win clearly more than half. 0x7E0B Hard wins, 0x7E0C Esperto, 0x7E0D done.
+    ld a,1
+    ld (0x7E20),a                ; SimMixed on
+    ld a,3
+    ld (0x7E21),a                ; opp = Esperto
+    ld a,2
+    ld (0x7E22),a                ; player = Hard
+    ld a,1
+    ld (AceRule),a
+    ld (DemoMode),a
+    ld (FastSim),a
+    xor a
+    ld (0x7E0B),a
+    ld (0x7E0C),a
+    ld (0x7E0D),a
+    ld b,30
+.ml43:
+    push bc
+    call NewMatch
+.fmr43:
+    call NewRound
+    call PlayRound
+    call ScoreRound
+    ld a,(PMatch)
+    cp 11
+    jr nc,.fme43
+    ld a,(OMatch)
+    cp 11
+    jr nc,.fme43
+    ld a,(Leader)
+    xor 1
+    ld (Leader),a
+    jr .fmr43
+.fme43:
+    ld a,(OMatch)
+    ld c,a
+    ld a,(PMatch)
+    cp c
+    jr c,.ow43                   ; PMatch < OMatch -> Esperto(opp) win
+    jr z,.dn43
+    ld hl,0x7E0B                 ; Hard(player) win
+    inc (hl)
+    jr .dn43
+.ow43:
+    ld hl,0x7E0C                 ; Esperto win
+    inc (hl)
+.dn43:
+    ld hl,0x7E0D
+    inc (hl)
+    pop bc
+    djnz .ml43
+.h43:
+    jr .h43
+    ENDIF
+    IF TESTMODE == 42
+    ; SKILL MENU render + key wiring: show SelectDifficulty, then key 4 should set Difficulty=3.
+    ; -> 0x7E10 = chosen Difficulty.
+    im 1
+    ei
+    call SelectDifficulty
+    ld a,(Difficulty)
+    ld (0x7E10),a
+.h42:
+    jr .h42
+    ENDIF
+    IF TESTMODE == 41
+    ; ESPERTO INTEGRATION: play 16 full Esperto-vs-Esperto matches (FastSim) through the REAL
+    ; turn loop (PlayRound -> OppTurn/DemoPlayerTurn -> aiSelectPlay -> EndgameSearch -> ResolvePlay).
+    ; Both sides Difficulty 3 -> exercises the search for RootWho 0 AND 1. Completing all 16 proves
+    ; integration (no hang/desync). 0x7E0B player wins, 0x7E0C opp, 0x7E0D matches done.
+    ld a,3
+    ld (Difficulty),a
+    ld a,1
+    ld (AceRule),a
+    ld (DemoMode),a
+    ld (FastSim),a
+    xor a
+    ld (0x7E0B),a
+    ld (0x7E0C),a
+    ld (0x7E0D),a
+    ld b,16
+.ml41:
+    push bc
+    call NewMatch
+.fmr41:
+    call NewRound
+    call PlayRound
+    call ScoreRound
+    ld a,(PMatch)
+    cp 11
+    jr nc,.fme41
+    ld a,(OMatch)
+    cp 11
+    jr nc,.fme41
+    ld a,(Leader)
+    xor 1
+    ld (Leader),a
+    jr .fmr41
+.fme41:
+    ld a,(OMatch)
+    ld c,a
+    ld a,(PMatch)
+    cp c
+    jr c,.ow41                   ; PMatch < OMatch -> opp win
+    jr z,.dn41                   ; tie (rare) -> count neither
+    ld hl,0x7E0B                 ; player win
+    inc (hl)
+    jr .dn41
+.ow41:
+    ld hl,0x7E0C
+    inc (hl)
+.dn41:
+    ld hl,0x7E0D
+    inc (hl)
+    pop bc
+    djnz .ml41
+.h41:
+    jr .h41
+    ENDIF
+    IF TESTMODE == 40
+    ; ENDGAME minimax depth-6 STRESS: full 3v3 final round, 3-card table with multi-option
+    ; captures (heavy branching). Confirms no hang/stack-overflow + measures search frames.
+    ; 0x7E10 BestSlot(0..2) 0x7E11 AIOpt 0x7E12 frames-elapsed(16) 0x7E14 TableN(exp 3)
+    ; 0x7E15..17 Opp restored (exp 24,17,0).
+    im 1
+    ei
+    ld a,3
+    ld (Difficulty),a
+    xor a
+    ld (AceRule),a
+    ld (PPileN),a
+    ld (OPileN),a
+    ld (PScopa),a
+    ld (OScopa),a
+    ld a,1
+    ld (LastCap),a
+    ld a,40
+    ld (DeckPos),a
+    ld a,1                        ; table = [2den, 3coppe, 5coppe]
+    ld (Table),a
+    ld a,12
+    ld (Table+1),a
+    ld a,14
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    ld a,24                       ; Opp = [5spade, 8coppe, ace-den]
+    ld (Opp),a
+    ld a,17
+    ld (Opp+1),a
+    ld a,0
+    ld (Opp+2),a
+    ld a,21                       ; Player = [2spade, 7coppe, 4coppe]
+    ld (Player),a
+    ld a,16
+    ld (Player+1),a
+    ld a,13
+    ld (Player+2),a
+    ld hl,Opp
+    ld (HandPtr),hl
+    ld hl,(23672)
+    ld (0x7E16),hl
+    call aiSelectPlay
+    ld (0x7E10),a
+    ld a,(AIOpt)
+    ld (0x7E11),a
+    ld hl,(23672)
+    ld de,(0x7E16)
+    or a
+    sbc hl,de
+    ld (0x7E12),hl
+    ld a,(TableN)
+    ld (0x7E14),a
+    ld hl,(Opp)
+    ld (0x7E15),hl
+    ld a,(Opp+2)
+    ld (0x7E17),a
+.h40:
+    jr .h40
+    ENDIF
+    IF TESTMODE == 39
+    ; ENDGAME minimax (basic correctness + state restoration). Deck empty; AI=Opp can grab
+    ; the settebello with its 7. Table=[settebello]. Opp=[7coppe,2den,3coppe].
+    ; Player=[3den,4coppe,8coppe] (no 7). Optimal: slot 0 (the 7) captures the settebello.
+    ; results -> 0x7E10 BestSlot(exp 0), 0x7E11 AIOpt(exp 0),
+    ; 0x7E12 TableN(exp 1), 0x7E13 PPileN(exp 0), 0x7E14 OPileN(exp 0),
+    ; 0x7E15..17 Opp[] restored (exp 16,1,12).
+    ld a,3
+    ld (Difficulty),a
+    xor a
+    ld (AceRule),a
+    ld (PPileN),a
+    ld (OPileN),a
+    ld (PScopa),a
+    ld (OScopa),a
+    ld (LastCap),a
+    ld a,40
+    ld (DeckPos),a
+    ld a,6
+    ld (Table),a
+    ld a,1
+    ld (TableN),a
+    ld a,16
+    ld (Opp),a
+    ld a,1
+    ld (Opp+1),a
+    ld a,12
+    ld (Opp+2),a
+    ld a,2
+    ld (Player),a
+    ld a,13
+    ld (Player+1),a
+    ld a,17
+    ld (Player+2),a
+    ld hl,Opp
+    ld (HandPtr),hl
+    call aiSelectPlay
+    ld (0x7E10),a
+    ld a,(AIOpt)
+    ld (0x7E11),a
+    ld a,(TableN)
+    ld (0x7E12),a
+    ld a,(PPileN)
+    ld (0x7E13),a
+    ld a,(OPileN)
+    ld (0x7E14),a
+    ld hl,(Opp)
+    ld (0x7E15),hl
+    ld a,(Opp+2)
+    ld (0x7E17),a
+.h39:
+    jr .h39
+    ENDIF
+    IF TESTMODE == 38
+    ; card-counting helpers: mark all four 5s + three 7s (leave the 7 of suit 3 unseen).
+    ; expect UnseenOfValue(5)=0, (7)=1, (3)=4  -> 0x7E10..0x7E12.
+    call ClearSeen
+    ld a,4
+    call MarkSeen                 ; 5 of denari (value 5 -> id 4)
+    ld a,14
+    call MarkSeen
+    ld a,24
+    call MarkSeen
+    ld a,34
+    call MarkSeen                 ; all four 5s seen
+    ld a,6
+    call MarkSeen                 ; 7 of denari
+    ld a,16
+    call MarkSeen
+    ld a,26
+    call MarkSeen                 ; three 7s seen (id 36 left unseen)
+    ld a,5
+    call UnseenOfValue
+    ld (0x7E10),a
+    ld a,7
+    call UnseenOfValue
+    ld (0x7E11),a
+    ld a,3
+    call UnseenOfValue
+    ld (0x7E12),a
+.h38:
+    jr .h38
+    ENDIF
     IF TESTMODE == 0
     xor a
     out (254),a                  ; black border behind the loading/title art
@@ -1054,11 +1347,11 @@ NewGame:                         ; skill/rules menu -> new match. The hidden SHI
     call SelectDifficulty
     jp RunMatch
 
-; EnterDemo: 45s idle on the title -> attract / self-play demo (CPU vs CPU, Hard + asso piglia
+; EnterDemo: 45s idle on the title -> attract / self-play demo (CPU vs CPU, Esperto + asso piglia
 ; tutto, silent). Loops forever until the watcher presses SPACE.
 EnterDemo:
-    ld a,2
-    ld (Difficulty),a            ; Hard
+    ld a,3
+    ld (Difficulty),a            ; Esperto (shows off the card-counting AI)
     ld a,1
     ld (AceRule),a               ; asso piglia tutto on
     ld (DemoMode),a              ; demo on (also forces sound off via SoundEnabled)
@@ -1528,6 +1821,30 @@ DemoPlayerTurn:
 ; Mirrors ai.js (medium: sweep-avoidance on). MY suit convention: denari=ids0-9,
 ; settebello=id6. Scores are signed 16-bit in ScoreW.
 aiSelectPlay:                    ; -> A = chosen hand slot; sets AIOpt
+    IF FASTSIM
+    ld a,(0x7E20)                ; SimMixed: head-to-head sim sets Difficulty per side
+    or a
+    jr z,.nomix
+    ld hl,(HandPtr)
+    ld de,Opp
+    or a
+    sbc hl,de
+    jr z,.mixopp
+    ld a,(0x7E22)               ; player side difficulty
+    jr .setmix
+.mixopp:
+    ld a,(0x7E21)               ; opp side difficulty
+.setmix:
+    ld (Difficulty),a
+.nomix:
+    ENDIF
+    ld a,(Difficulty)
+    cp 3
+    jr nz,.heur                  ; not Esperto -> weighted heuristic
+    ld a,(DeckPos)
+    cp 40
+    jp nc,EndgameSearch          ; Esperto + deck empty -> exact endgame minimax (sets AIOpt, rets)
+.heur:
     ld hl,0x8000
     ld (BestScoreW),hl           ; -32768
     ld a,0xFF
@@ -1579,6 +1896,385 @@ aiSelectPlay:                    ; -> A = chosen hand slot; sets AIOpt
     ld a,(BestOpt)
     ld (AIOpt),a
     ld a,(BestSlot)
+    ret
+
+; ============================================================================
+; Esperto endgame: exact minimax (alpha-beta) of the final round.
+; Entered from aiSelectPlay when Difficulty==3 and the deck is empty. The unseen cards
+; are exactly the opponent's hand, so the search reads the real Player[]/Opp[] arrays and
+; drives the SAME rules engine (findAllCaptures/AddToPile/CompactTable/ScoreRound) via
+; make/unmake. Values are signed bytes = (RootWho's round points - the other's); +-100 = INF.
+; Each recursion level owns a 32-byte frame in Frames[]: [0..15]=Table snapshot,
+; 16=TableN 17=PPileN 18=OPileN 19=PScopa 20=OScopa 21=LastCap 23=played card,
+; 24=this node's side, 25=slot, 26=optMax, 27=opt, 28=alpha, 29=beta.
+; ============================================================================
+EndgameSearch:                   ; -> A = best slot; sets AIOpt (same contract as aiSelectPlay)
+    ld hl,(HandPtr)
+    ld de,Opp
+    or a
+    sbc hl,de
+    ld a,0
+    jr nz,.rwset                 ; HandPtr != Opp -> player side (RootWho 0)
+    inc a                        ; HandPtr == Opp -> RootWho 1
+.rwset:
+    ld (RootWho),a
+    ld (Who),a                   ; root: side to move
+    xor a
+    ld (CurDepth),a
+    call FramePtrIX
+    ld a,(Who)
+    ld (ix+24),a
+    ld a,0x9C                    ; -100 (alpha = -INF)
+    ld (ix+28),a
+    ld a,100                     ; beta = +INF
+    ld (ix+29),a
+    ld a,0xFF
+    ld (BestSlot),a
+    ld (BestOpt),a
+    call SearchNode              ; explores depth 0 (max node); records BestSlot/BestOpt
+    ld a,(BestOpt)
+    ld (AIOpt),a
+    ld a,(BestSlot)
+    ret
+
+; SearchNode: position with (Who) to move; frame[CurDepth].alpha/beta preset. -> A = value.
+SearchNode:
+    call FramePtrIX
+    ld a,(Who)
+    ld (ix+24),a
+    call CurHandPtr
+    ld a,(hl)
+    inc hl
+    and (hl)
+    inc hl
+    and (hl)
+    inc a                        ; all three 0xFF -> 0 (hand empty)
+    jp nz,.notleaf
+    jp LeafEval                  ; terminal -> score; returns A
+.notleaf:
+    call FramePtrIX
+    xor a
+    ld (ix+25),a                 ; slot = 0
+.slotloop:
+    call FramePtrIX
+    call CurHandPtr
+    ld a,(ix+25)
+    call addHLA
+    ld a,(hl)
+    cp 0xFF
+    jp z,.nextslot
+    call valueOf
+    call findAllCaptures
+    call FramePtrIX
+    ld a,(OptionN)
+    ld (ix+26),a
+    or a
+    jr nz,.opts
+    ld a,0xFF
+    ld (ix+27),a                 ; no captures -> single DROP move
+    call .domove
+    call FramePtrIX
+    call .cutq
+    jp c,.done
+    jp .nextslot
+.opts:
+    xor a
+    ld (ix+27),a
+.optloop:
+    call .domove
+    call FramePtrIX
+    call .cutq
+    jp c,.done
+    call FramePtrIX
+    ld a,(ix+27)
+    inc a
+    ld (ix+27),a
+    ld b,a
+    ld a,(ix+26)
+    cp b
+    jp nz,.optloop
+.nextslot:
+    call FramePtrIX
+    ld a,(ix+25)
+    inc a
+    ld (ix+25),a
+    cp 3
+    jp c,.slotloop
+.done:
+    call FramePtrIX
+    call .ismax
+    jr nz,.retbeta
+    ld a,(ix+28)                 ; max node -> alpha
+    ret
+.retbeta:
+    ld a,(ix+29)                 ; min node -> beta
+    ret
+
+.ismax:                          ; Z set iff this node maximises (side == RootWho)
+    ld a,(ix+24)
+    ld hl,RootWho
+    cp (hl)
+    ret
+
+.cutq:                           ; CF=1 iff alpha >= beta (prune)
+    ld a,(ix+28)
+    ld e,(ix+29)
+    call SCmpAE                  ; CF=1 iff alpha < beta
+    ccf
+    ret
+
+.domove:                         ; play (ix+25,ix+27), recurse, unmake, update alpha/beta
+    call SimApply
+    ld a,(Who)
+    xor 1
+    ld (Who),a                   ; child to move
+    call FramePtrIX
+    ld e,(ix+28)
+    ld d,(ix+29)                 ; inherit window
+    ld a,(CurDepth)
+    inc a
+    ld (CurDepth),a
+    call FramePtrIX
+    ld (ix+28),e
+    ld (ix+29),d
+    call SearchNode              ; A = child value
+    push af
+    ld a,(CurDepth)
+    dec a
+    ld (CurDepth),a
+    call FramePtrIX
+    ld a,(ix+24)
+    ld (Who),a                   ; back to this node's side
+    call SimUndo
+    call FramePtrIX
+    pop af
+    ld c,a                       ; C = child value (preserve across .ismax)
+    call .ismax
+    jr nz,.updmin
+    ld a,(ix+28)                 ; max: value > alpha ?
+    ld e,c
+    call SCmpAE                  ; CF=1 iff alpha < value
+    jr nc,.duret
+    ld (ix+28),c                 ; alpha = value
+    ld a,(CurDepth)
+    or a
+    jr nz,.duret
+    ld a,(ix+25)                 ; root -> record the best move
+    ld (BestSlot),a
+    ld a,(ix+27)
+    ld (BestOpt),a
+.duret:
+    ret
+.updmin:
+    ld a,c                       ; min: value < beta ?
+    ld e,(ix+29)
+    call SCmpAE                  ; CF=1 iff value < beta
+    jr nc,.duret
+    ld (ix+29),c                 ; beta = value
+    ret
+
+; SimApply: make the move (ix+25=slot, ix+27=opt or 0xFF=drop, Who=mover). Snapshots undo.
+SimApply:
+    call FramePtrIX
+    ld a,(TableN)
+    ld (ix+16),a
+    ld a,(PPileN)
+    ld (ix+17),a
+    ld a,(OPileN)
+    ld (ix+18),a
+    ld a,(PScopa)
+    ld (ix+19),a
+    ld a,(OScopa)
+    ld (ix+20),a
+    ld a,(LastCap)
+    ld (ix+21),a
+    push ix
+    pop de
+    ld hl,Table
+    ld bc,16
+    ldir                         ; frame[0..15] = Table[]
+    call CurHandPtr
+    ld a,(ix+25)
+    call addHLA
+    ld a,(hl)
+    ld (ix+23),a                 ; save played card
+    ld (hl),0xFF                 ; remove from hand
+    ld a,(ix+27)
+    cp 0xFF
+    jr z,.drop
+    ld a,(ix+23)
+    call valueOf
+    call findAllCaptures         ; refresh Options/AceSweepOpt (table == enumeration time)
+    ld a,(ix+27)
+    call MaskToCapSel
+    ld a,(TableN)
+    ld b,a
+    ld e,0
+.cap:
+    ld a,e
+    cp b
+    jr nc,.capdone
+    ld hl,CapSel
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.capn
+    ld hl,Table
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    push bc
+    push de
+    call AddToPile               ; captured card -> mover's pile (uses Who)
+    pop de
+    pop bc
+.capn:
+    inc e
+    jr .cap
+.capdone:
+    ld a,(ix+23)
+    call AddToPile               ; played card -> mover's pile
+    call CompactTable
+    ld a,(Who)
+    ld (LastCap),a
+    ld a,(TableN)
+    or a
+    jr nz,.amdone                ; table not cleared -> no scopa
+    ld a,(AceSweepOpt)
+    or a
+    jr nz,.amdone                ; Scopa d'Assi -> no scopa
+    call IsLastPlay
+    or a
+    jr nz,.amdone                ; final card of the deal -> no scopa
+    ld a,(Who)
+    or a
+    jr nz,.osc
+    ld hl,PScopa
+    inc (hl)
+    jr .amdone
+.osc:
+    ld hl,OScopa
+    inc (hl)
+.amdone:
+    ret
+.drop:
+    ld a,(TableN)
+    ld hl,Table
+    call addHLA
+    ld a,(ix+23)
+    ld (hl),a
+    ld hl,TableN
+    inc (hl)
+    ret
+
+; SimUndo: restore the state snapshotted by SimApply (Who must be this node's side).
+SimUndo:
+    call FramePtrIX
+    push ix
+    pop hl
+    ld de,Table
+    ld bc,16
+    ldir                         ; Table[] = frame[0..15]
+    ld a,(ix+16)
+    ld (TableN),a
+    ld a,(ix+17)
+    ld (PPileN),a
+    ld a,(ix+18)
+    ld (OPileN),a
+    ld a,(ix+19)
+    ld (PScopa),a
+    ld a,(ix+20)
+    ld (OScopa),a
+    ld a,(ix+21)
+    ld (LastCap),a
+    call CurHandPtr
+    ld a,(ix+25)
+    call addHLA
+    ld a,(ix+23)
+    ld (hl),a                    ; card back into the hand slot
+    ret
+
+; LeafEval: both hands empty -> sweep remaining table to LastCap, score, return signed
+; (RootWho points - other points) in A. Restores the bits ScoreRound/SweepToLast touch.
+LeafEval:
+    ld a,(TableN)
+    ld (LfTN),a
+    ld a,(PPileN)
+    ld (LfPP),a
+    ld a,(OPileN)
+    ld (LfOP),a
+    ld a,(PMatch)
+    ld (LfPM),a
+    ld a,(OMatch)
+    ld (LfOM),a
+    call SweepToLast
+    call ScoreRound
+    ld a,(RootWho)
+    or a
+    jr nz,.opp
+    ld a,(PRound)
+    ld hl,ORound
+    sub (hl)                     ; player perspective
+    jr .restore
+.opp:
+    ld a,(ORound)
+    ld hl,PRound
+    sub (hl)                     ; opp perspective
+.restore:
+    push af
+    ld a,(LfPM)
+    ld (PMatch),a
+    ld a,(LfOM)
+    ld (OMatch),a
+    ld a,(LfTN)
+    ld (TableN),a
+    ld a,(LfPP)
+    ld (PPileN),a
+    ld a,(LfOP)
+    ld (OPileN),a
+    pop af
+    ret
+
+; FramePtrIX: IX = Frames + CurDepth*32. Preserves DE; clobbers A,flags.
+FramePtrIX:
+    ld a,(CurDepth)
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    add a,a                      ; *32 (depth<=6 -> <=192)
+    ld ix,Frames
+    push de
+    ld e,a
+    ld d,0
+    add ix,de
+    pop de
+    ret
+
+; CurHandPtr: HL = address of (Who)'s hand.
+CurHandPtr:
+    ld a,(Who)
+    or a
+    ld hl,Player
+    ret z
+    ld hl,Opp
+    ret
+
+; SCmpAE: signed compare A vs E -> CF=1 iff A < E (signed); Z=1 iff equal. Clobbers A.
+SCmpAE:
+    sub e
+    ret z
+    jp pe,.ov
+    jp m,.lt
+    or a
+    ret
+.ov:
+    jp p,.lt
+    or a
+    ret
+.lt:
+    scf
     ret
 
 ; AddScoreDE: ScoreW += DE (signed)
@@ -1825,6 +2521,73 @@ MarkCards:
     djnz MarkCards
     ret
 
+; ===== card-counting queries (Esperto) =====
+; IsSeen: A=card id -> A=0 if UNSEEN, nonzero if seen. Preserves BC,DE,HL.
+IsSeen:
+    push bc
+    push hl
+    ld c,a
+    srl a
+    srl a
+    srl a                        ; byte index = id>>3
+    ld hl,Seen
+    call addHLA                  ; preserves BC,DE
+    ld a,c
+    and 7
+    ld b,a
+    ld a,1
+    inc b
+.sh:
+    dec b
+    jr z,.t
+    add a,a
+    jr .sh
+.t:
+    and (hl)                     ; isolate the bit -> 0 (unseen) / bit-value (seen)
+    pop hl
+    pop bc
+    ret
+
+; UnseenOfValue: A=value(1..10) -> A = count(0..4) of cards of that value NOT yet seen.
+; The four card ids of value v are (v-1)+10*suit. Preserves BC,DE,HL.
+UnseenOfValue:
+    push bc
+    push de
+    push hl
+    dec a
+    ld e,a                       ; E = id of (suit 0, value v)
+    ld d,4                       ; 4 suits
+    ld c,0                       ; C = unseen count
+.uv:
+    ld a,e
+    call IsSeen                  ; preserves BC,DE,HL
+    or a
+    jr nz,.seen
+    inc c
+.seen:
+    ld a,e
+    add a,10
+    ld e,a                       ; next suit's id
+    dec d
+    jr nz,.uv
+    ld a,c
+    pop hl
+    pop de
+    pop bc
+    ret
+
+; ThreatLive: A=value -> A=0 (skip this threat) / nonzero (apply the penalty).
+; For Esperto (Difficulty 3) a threat is dead if the opponent provably can't hold the
+; matching value (all 4 already seen). Other levels: always live (original behaviour).
+; Clobbers A,B; preserves C,DE,HL (via UnseenOfValue).
+ThreatLive:
+    ld b,a
+    ld a,(Difficulty)
+    cp 3
+    ld a,b
+    ret nz                       ; not Esperto -> value (nonzero) -> apply
+    jp UnseenOfValue             ; Esperto -> unseen count (0 -> skip)
+
 ; BuildRemaining: TmpTable = table cards NOT in CapSel
 BuildRemaining:
     ld a,(TableN)
@@ -1883,6 +2646,9 @@ EvalSafety:
     ld a,c
     cp 11
     jr nc,.nsr
+    call ThreatLive              ; Esperto: only a sweep risk if the opp can hold value==sum
+    or a
+    jr z,.nsr
     ld de,-9                     ; LEAVE_SWEEP_RISK (sum <= 10) (self-play tuned, was -20)
     call AddScoreDE
 .nsr:
@@ -1905,6 +2671,10 @@ EvalSafety:
     jr c,.vs
     jr .vn
 .vm:
+    ld a,d                       ; Esperto: skip if the opp can't hold a card of value d
+    call ThreatLive
+    or a
+    jr z,.vn
     push de
     ld de,-5                     ; LEAVE_EASY_CAPTURE (per matchable value) (self-play tuned, was -2)
     call AddScoreDE
@@ -1918,6 +2688,14 @@ EvalSafety:
     ld a,(AceRule)
     or a
     ret z                        ; rule off -> no ace-sweep risk
+    ld a,(Difficulty)            ; Esperto: if no ace is still unseen, the opp can't ace-sweep
+    cp 3
+    jr nz,.aceon
+    ld a,1
+    call UnseenOfValue
+    or a
+    ret z
+.aceon:
     ld a,(TmpTableN)
     ld b,a
     ld e,0
@@ -2424,7 +3202,7 @@ CaptureZipOld:
 ; ZipCompact: slide the (already-compacted) Table cards from their recorded ZipCur columns
 ; to their final compacted columns (1 + newstep*k), a few columns per frame -> a fast zip.
 ZipCompact:
-    IF TESTMODE == 37
+    IF FASTSIM
     ld a,(FastSim)
     or a
     ret nz                       ; bias sim: skip the re-pack animation (state already compacted)
@@ -3404,7 +4182,7 @@ WaitSpace:
     ret
 
 Delay:
-    IF TESTMODE == 37
+    IF FASTSIM
     ld a,(FastSim)
     or a
     ret nz                       ; bias sim: no waiting
@@ -3861,15 +4639,19 @@ SelectDifficulty:
     call PrintStr
     ld hl,StrEasy
     ld d,11
-    ld e,9
+    ld e,8
     call PrintStr
     ld hl,StrMed
     ld d,11
-    ld e,11
+    ld e,10
     call PrintStr
     ld hl,StrHard
     ld d,11
-    ld e,13
+    ld e,12
+    call PrintStr
+    ld hl,StrExpert
+    ld d,11
+    ld e,14
     call PrintStr
     ld hl,StrAssoSub             ; subtitle under the rule toggle
     ld d,5
@@ -3881,20 +4663,23 @@ SelectDifficulty:
     ld e,6
     ld a,0x45
     call FillAttrRow              ; prompt cyan
-    ld e,9
+    ld e,8
     ld a,0x44
     call FillAttrRow              ; EASY green
-    ld e,11
+    ld e,10
     ld a,0x47
     call FillAttrRow              ; MEDIUM white
-    ld e,13
+    ld e,12
     ld a,0x42
     call FillAttrRow              ; HARD red
+    ld e,14
+    ld a,0x43
+    call FillAttrRow              ; ESPERTO magenta
     ld e,18
     ld a,0x05
     call FillAttrRow              ; subtitle dim cyan
     call .drawasso               ; rule toggle (row 16)
-    call .drawsound              ; sound toggle (row 21)
+    call .drawsound              ; sound toggle (row 20)
 .w:
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
     in a,(c)
@@ -3904,9 +4689,13 @@ SelectDifficulty:
     jr z,.med
     bit 2,a
     jr z,.hard
-    bit 3,a                      ; key 4 -> toggle the rule
+    bit 3,a                      ; key 4 -> Esperto (card-counting AI)
+    jr z,.expert
+    bit 4,a                      ; key 5 -> toggle the asso rule
     jr z,.toggle
-    bit 4,a                      ; key 5 -> toggle sound
+    ld bc,0xEFFE                  ; keys 6,7,8,9,0
+    in a,(c)
+    bit 4,a                       ; key 6 -> toggle sound
     jr z,.snd
     jr .w
 .toggle:
@@ -3914,10 +4703,10 @@ SelectDifficulty:
     xor 1
     ld (AceRule),a
     call .drawasso
-.trel:                           ; debounce: wait for key 4 to be released
+.trel:                           ; debounce: wait for key 5 to be released
     ld bc,0xF7FE
     in a,(c)
-    bit 3,a
+    bit 4,a
     jr z,.trel
     jr .w
 .snd:
@@ -3925,8 +4714,8 @@ SelectDifficulty:
     xor 1
     ld (SoundOn),a
     call .drawsound
-.srel:                           ; debounce: wait for key 5 to be released
-    ld bc,0xF7FE
+.srel:                           ; debounce: wait for key 6 to be released
+    ld bc,0xEFFE
     in a,(c)
     bit 4,a
     jr z,.srel
@@ -3939,6 +4728,9 @@ SelectDifficulty:
     jr .set
 .hard:
     ld a,2
+    jr .set
+.expert:
+    ld a,3
 .set:
     ld (Difficulty),a
     ret
@@ -3969,7 +4761,7 @@ SelectDifficulty:
     ld hl,StrSoundOn
 .dso:
     ld d,9
-    ld e,21
+    ld e,20
     call PrintStr
     ld a,(SoundOn)
     or a
@@ -3977,7 +4769,7 @@ SelectDifficulty:
     jr z,.dsc
     ld a,0x44                     ; ON  -> green
 .dsc:
-    ld e,21
+    ld e,20
     call FillAttrRow
     ret
 
@@ -3985,11 +4777,12 @@ StrSkill: defb "SELECT SKILL LEVEL",0
 StrEasy:  defb "1   EASY",0
 StrMed:   defb "2   MEDIUM",0
 StrHard:  defb "3   HARD",0
-StrAssoOff: defb "4  ASSO PIGLIA TUTTO  OFF",0
-StrAssoOn:  defb "4  ASSO PIGLIA TUTTO  ON ",0
+StrExpert: defb "4   ESPERTO",0
+StrAssoOff: defb "5  ASSO PIGLIA TUTTO  OFF",0
+StrAssoOn:  defb "5  ASSO PIGLIA TUTTO  ON ",0
 StrAssoSub: defb "(ACE TAKES WHOLE TABLE)",0
-StrSoundOff: defb "5  SOUND  OFF",0
-StrSoundOn:  defb "5  SOUND  ON ",0
+StrSoundOff: defb "6  SOUND  OFF",0
+StrSoundOn:  defb "6  SOUND  ON ",0
 
 ; FillAttrRow: E=char row, A=attr -> fill that whole attr row
 FillAttrRow:
@@ -4373,7 +5166,7 @@ StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
 ; =================== card paint ===================
 ; PaintAll = build the frame in the shadow buffer, then blit it to the screen.
 PaintAll:
-    IF TESTMODE == 37
+    IF FASTSIM
     ld a,(FastSim)
     or a
     ret nz                       ; bias sim: no rendering
@@ -4808,7 +5601,7 @@ SlideDelta:
 ; footprint (restored from the shadow) and redraws it at the new cell. That's ~2 cards
 ; of work per frame -- small enough to finish ahead of the raster, so it never tears.
 SlideIn:
-    IF TESTMODE == 37
+    IF FASTSIM
     ld a,(FastSim)
     or a
     ret nz                       ; bias sim: skip the slide animation
