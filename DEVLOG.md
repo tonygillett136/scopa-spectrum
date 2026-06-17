@@ -771,3 +771,26 @@ opens with a random leader and successive matches alternate. Per-deal alternatio
 (.sna/.z80 freeze the boot RNG, so the web build's first opening leader is fixed-arbitrary then alternates;
 real tape gets entropy.) TESTMODE 28 logs Leader over 6 NewMatch calls -> [0,1,0,1,0,1]. code CodeEnd 0xAC00
 (1024 B free); tap 42586B / tzx 42769B. Both fixes rebuilt tap/tzx/sna + recaptured both title .z80s + site redeployed.
+
+## Tear-free board redraws: delta blit (2026-06-17)
+Tony (CRT): the blinds tear also shows when cards are drawn/removed -- a different mechanism from the
+slide. Every board change ran the whole-screen Blit (LDIR of all 6912 bytes = ~145,147 T = 2.08 frames),
+far too big to fit ahead of the beam, so the raster always crosses it mid-copy. Speed can't fix it -- a
+memory->memory copy is ~21 T per 2 bytes either way.
+
+Fix: DeltaBlit copies only the character cells that changed. Pass 1 diffs the shadow buffer against the
+screen (reads only -> invisible, runs BEFORE the HALT) and marks dirty cells in a 768-byte map in the
+unused shadow tail (DirtyArr @ 0x7B00; RenderShadow only uses 0x6000-0x7AFF). Pass 2, after HALT + di,
+copies just the dirty cells in raster order (row outer, col inner), bitmap 8-lines + attr together per
+cell -> small enough to stay ahead of the beam -> tear-free even at the top, colour locked to pixels. The
+key idea: all the slow work (the diff) is in the invisible pre-HALT phase; the post-HALT visible copy is
+tiny and raster-ordered. PaintAll now uses DeltaBlit; the per-frame zip re-pack animation keeps the full
+Blit for now (a per-frame full diff would crawl) -> the re-pack can still tear (separate follow-up).
+Overlays drawn to the screen after PaintAll (capture flash) self-heal -- the next delta restores them.
+
+VERIFIED: from a stale screen DeltaBlit reproduces the full board pixel-identical to the old Blit
+(TESTMODE 20 gallery, PIL diff empty); the invariant "screen == shadow everywhere after a delta update"
+holds byte-exact across an A->B board change (new TESTMODE 29: 0/6144 bitmap + 0/768 attr mismatches);
+self-play demo and a normal human game stay clean through many board changes. Tear-free-ness = Tony's CRT.
+Perf: full diff ~217k T/PaintAll (~17% slower than the old Blit, absorbed by inter-turn pauses; a felt-skip
+on rows 2-21 could make it a net win if needed). code CodeEnd 0xACFF (769 B free); tap 42849B / tzx 43032B.
