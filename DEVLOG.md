@@ -635,3 +635,14 @@ right after the wait returns; if held -> jp NewGameFromTitle (black border -> Sh
 never blocks the waits. TESTMODE 22 verifies both paths in ZEsarUX: plain SPACE stays (play again),
 SHIFT+SPACE -> title. code 10617B (1671B free); tap 41958B / tzx 42141B. .z80 site snapshots recaptured
 from this build so the in-browser version has it too.
+
+## FIX: SHIFT+SPACE-to-menu crash on real hardware (2026-06-17)
+Tony on CRT: SHIFT+SPACE at end-of-match -> fully corrupted screen, needed a reset. CAUSE: the
+hidden return jumped to ShowTitle, which DecompressScr's the title from its RLE parking area at
+0x6000 -- but 0x6000 doubles as the gameplay shadow buffer and is overwritten during play, so after
+a match it's garbage; decompressing garbage RLE corrupts the screen (and overruns). TESTMODE 22
+missed it because it never played a round (0x6000 still held the title). FIX: SHIFT+SPACE now jumps
+to NewGame -> SelectDifficulty directly (the skill/rules menu, which draws itself: "SCOPA / SELECT
+SKILL LEVEL", no title data needed). ShowTitle is called ONCE at boot (0x6000 intact). TESTMODE 22
+updated to trash 0x6000 first (reproduce the real condition) -> verified the menu renders clean.
+code 10617B; tap 41958B/tzx 42141B; .z80s + downloads rebuilt from the fixed build.

@@ -482,8 +482,15 @@ Start:
     jr .h20
     ENDIF
     IF TESTMODE == 22
-    ; hidden SHIFT+SPACE-to-title: at the win screen, holding SHIFT while pressing SPACE
-    ; returns to the title menu; plain SPACE plays again. Player "won" 11-7.
+    ; hidden SHIFT+SPACE-to-menu: SHIFT at the win screen -> SelectDifficulty (skill menu);
+    ; plain SPACE plays again. CRUCIAL regression: a real game overwrites the title's RLE
+    ; parking area @0x6000 (the shadow buffer) -- so trash it here to prove the feature does
+    ; NOT re-decompress the title (which crashed/corrupted the screen on hardware).
+    ld hl,0x6000
+    ld de,0x6001
+    ld bc,0x1AFF
+    ld (hl),0xA5                 ; fill 0x6000-0x7AFF with garbage, as gameplay would
+    ldir
     call NewMatch
     ld a,11
     ld (PMatch),a
@@ -494,7 +501,7 @@ Start:
     ld a,0xFE
     in a,(0xFE)
     bit 0,a
-    jp z,NewGameFromTitle        ; SHIFT held -> title (the feature under test)
+    jp z,NewGame                 ; SHIFT held -> skill menu (must render cleanly despite trashed 0x6000)
 .h22:
     jr .h22                      ; plain SPACE -> stay here (proves no false trigger)
     ENDIF
@@ -612,7 +619,8 @@ Start:
     ld (Seed+1),a
     ld b,6
     call Delay                   ; hold the loading screen >= ~3s (min display)
-    jp NewGameFromTitle          ; title -> difficulty -> match (shared with the hidden SHIFT+SPACE return)
+    call ShowTitle               ; show the title ONCE at boot (its RLE source @0x6000 is intact only now)
+    jp NewGame                   ; -> skill menu -> match
     ENDIF
 
 ; =================== match / round ===================
@@ -653,7 +661,7 @@ RunMatch:
     ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
     in a,(0xFE)                  ; read the CAPS-SHIFT half-row (0xFEFE)
     bit 0,a                      ; CAPS SHIFT: 0 = pressed
-    jp z,NewGameFromTitle
+    jp z,NewGame
     jr RunMatch
 .pwon:
     call ShowWinYou
@@ -661,14 +669,17 @@ RunMatch:
     ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
     in a,(0xFE)
     bit 0,a                      ; CAPS SHIFT: 0 = pressed
-    jp z,NewGameFromTitle
+    jp z,NewGame
     jr RunMatch
 
-NewGameFromTitle:                ; title screen -> difficulty/rules -> new match (also the boot entry)
+NewGame:                         ; skill/rules menu -> new match. The hidden SHIFT+SPACE returns
+                                 ; HERE, NOT to ShowTitle: the title's compressed source at 0x6000
+                                 ; is overwritten by the gameplay shadow buffer, so re-decompressing
+                                 ; it after a game would render garbage / crash. SelectDifficulty
+                                 ; draws itself from scratch (its own "SCOPA / SELECT SKILL LEVEL").
     xor a
-    out (254),a                  ; black border behind the title
+    out (254),a                  ; black border behind the menu
     ld (BorderC),a
-    call ShowTitle
     call SelectDifficulty
     jp RunMatch
 
