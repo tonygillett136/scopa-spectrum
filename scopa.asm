@@ -2364,10 +2364,22 @@ ZipCompact:
     ret z                        ; table emptied (e.g. a scopa) -> nothing to zip
     call TableStep
     ld (ZipStep),a               ; new column step
+    ; --- removal beat: the taken cards are already out of Table[]; show the survivors still at
+    ; their OLD columns (taken cards now gone) and hold briefly, so the removal reads as its own
+    ; step BEFORE the cards slide together (not simultaneously). ---
+    ld a,1
+    ld (HideTable),a
+    call RenderShadow
+    xor a
+    ld (HideTable),a
+    call DrawZipCards
+    call Blit
+    ld b,2
+    call Delay
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
-    cp 19
-    jr c,.zsmooth                ; <=18 cols in motion -> slice fits ahead of the beam -> smooth
+    cp 22
+    jr c,.zsmooth                ; <=21 cols in motion -> slice fits ahead of the beam -> smooth
     ; crowded: too wide to copy ahead of the beam every frame -> snap to final positions in ONE
     ; frame (a single brief blink instead of the sustained tearing of a full-band slide).
     call ZipSnap                 ; ZipCur[k] = target column for every survivor
