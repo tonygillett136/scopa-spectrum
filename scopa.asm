@@ -534,6 +534,25 @@ Start:
 .h24:
     jr .h24
     ENDIF
+    IF TESTMODE == 25
+    ; CPU-hand-position regression: deal a full round, then punch a GAP in the CPU hand
+    ; (slot 1 empty). The backs must draw at their REAL slot columns (6 and 20, hole at 13),
+    ; mirroring the player hand; and when the AI plays slot 0 or 2 the slide must start from
+    ; that card's true slot column (HandCol(slot) = 6 or 20), matching where it was drawn.
+    ; Screenshot during the Delay shows the gapped fan; SlHandCol after = the played column.
+    ld a,1
+    ld (Difficulty),a
+    call NewMatch
+    call NewRound
+    ld a,0xFF
+    ld (Opp+1),a                 ; gap at slot 1 -> backs at cols 6 and 20, hole at col 13
+    call PaintAll
+    ld b,10
+    call Delay                   ; hold the gapped fan (~5s) for a screenshot
+    call OppTurn
+.h25:
+    jr .h25
+    ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
     ld hl,Table
@@ -989,15 +1008,15 @@ OppTurn:
     ld b,1
     call Delay
     call aiSelectPlay            ; A = best slot, sets AIOpt
-    push af                      ; save the slot
+    push af                      ; save the played slot
     ld hl,Opp
     call addHLA
     ld a,(hl)
-    ld (hl),0xFF
+    ld (hl),0xFF                 ; remove the played card -> leaves a gap at that slot
     ld (Played),a
-    pop af                       ; slot
-    call HandCol
-    ld (SlHandCol),a
+    pop af                       ; the played slot
+    call HandCol                 ; CPU backs are drawn at their REAL slot columns (with gaps,
+    ld (SlHandCol),a             ; like the player's hand), so slide from the card's true slot
     xor a
     ld (SlRow),a                 ; rows 0 -> 8 (CPU hand at top, 8 smooth synced steps)
     ld a,1
@@ -3736,12 +3755,16 @@ RenderShadow:
     ld bc,0x2FF
     ld (hl),0x28
     ldir
-    call CountOpp
-    or a
-    jr z,.notop
-    ld b,a
+    ; CPU hand: a face-down BACK at each occupied slot's REAL column (col 6 + 7*slot),
+    ; skipping empties -- mirrors the player loop below, so a played card leaves a gap
+    ; exactly where it was (and the OppTurn slide starts from that same real column).
+    ld ix,Opp
+    ld b,3
     ld d,6
 .opb:
+    ld a,(ix+0)
+    cp 0xFF
+    jr z,.opbn
     ld a,BACK
     ld e,0
     push bc
@@ -3749,11 +3772,12 @@ RenderShadow:
     call BlitCard
     pop de
     pop bc
+.opbn:
+    inc ix
     ld a,d
     add a,7
     ld d,a
     djnz .opb
-.notop:
     ld a,(HideTable)
     or a
     jr nz,.notab                 ; zip animation draws the table cards itself
