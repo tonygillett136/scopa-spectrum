@@ -50,6 +50,7 @@ BestOpt:   defs 1
 TmpTable:  defs 16
 TmpTableN: defs 1
 Leader:    defs 1
+OpenLeader: defs 1                ; who leads the FIRST deal of a match: random at boot, flips per match
 Difficulty: defs 1
 Seen:      defs 5
 ScrOfs:    defs 1                  ; high-byte add: 0x00=screen, 0x20=shadow(0x6000)
@@ -99,6 +100,11 @@ Start:
     ld (HandPtr),hl              ; AI evaluates the opponent hand by default
     ld a,1
     ld (SoundOn),a               ; sound on by default
+    ld a,r                       ; random opening leader for the FIRST match of the session
+    ld hl,23672
+    xor (hl)
+    and 1
+    ld (OpenLeader),a            ; (NewMatch then alternates it each subsequent match)
     IF TESTMODE == 1
     call ScoreTestSetup
     call ScoreRound
@@ -554,6 +560,24 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 28
+    ; opening-leader alternation: call NewMatch 6x, log Leader each time into Options[].
+    ; Expect X,!X,X,!X,X,!X (X = the boot random opening leader).
+    ld hl,Options
+    ld b,6
+.l28:
+    push bc
+    push hl
+    call NewMatch
+    pop hl
+    ld a,(Leader)
+    ld (hl),a
+    inc hl
+    pop bc
+    djnz .l28
+.h28:
+    jr .h28
+    ENDIF
     IF TESTMODE == 27
     ; EraseCardRegion correctness: paint a board (screen + shadow), stamp a card onto the LIVE
     ; SCREEN only at cell (13,8), then EraseCardRegion it. The screen region must be restored to
@@ -824,7 +848,10 @@ NewMatch:
     xor a
     ld (PMatch),a
     ld (OMatch),a
-    ld (Leader),a                ; player leads the first round
+    ld a,(OpenLeader)            ; opening leader: random for match 1 (set at boot),
+    ld (Leader),a                ; then alternating each match this session
+    xor 1
+    ld (OpenLeader),a            ; flip for the next match
     ret
 
 NewRound:
