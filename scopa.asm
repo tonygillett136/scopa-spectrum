@@ -562,6 +562,38 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 34
+    ; demo player crowded keep-in-hand: full table + a capturing card, DemoPlayerTurn auto-plays.
+    ; Should flash in-hand (not slide) and resolve: PPileN 2, TableN 5.
+    ld a,1
+    ld (Difficulty),a
+    ld a,1
+    ld (DemoMode),a
+    call NewMatch
+    call NewRound
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),1
+    inc hl
+    ld (hl),2
+    inc hl
+    ld (hl),3
+    inc hl
+    ld (hl),4
+    inc hl
+    ld (hl),5
+    ld a,6
+    ld (TableN),a
+    ld a,15
+    ld (Player),a
+    ld a,0xFF
+    ld (Player+1),a
+    ld (Player+2),a
+    call DemoPlayerTurn
+.h34:
+    jr .h34
+    ENDIF
     IF TESTMODE == 33
     ; crowded-table PLAYER keep-in-hand: full table + a player card that captures. Enter PlayerTurn;
     ; the driver presses SPACE -> the card should flash in-hand (not slide), resolve: PPileN 2, TableN 5.
@@ -1304,14 +1336,57 @@ DemoPlayerTurn:
     ld (ChoiceVal),a             ; feed the AI's capture choice into the player path
     ld a,1
     ld (ChoiceMade),a
-    ld a,(BestSlot)              ; the chosen slot (aiSelectPlay returned it in A, but reload to be safe)
-    push af
+    ld a,(BestSlot)
+    ld (Cursor),a                ; point the cursor at the played card (for the in-hand flash)
     ld hl,Player
+    ld a,(BestSlot)
     call addHLA
     ld a,(hl)
+    ld (Played),a                ; the played card value (still in the hand for now)
+    ; --- crowded-table capture? keep the card flashing IN HAND like a human play, no slide ---
+    ld a,(Played)
+    call valueOf
+    call findAllCaptures
+    ld a,(OptionN)
+    or a
+    jr z,.demoslide              ; drop -> slide
+    ld a,(TableN)
+    cp 6
+    jr c,.demoslide              ; not crowded -> slide
+    ld a,(AIOpt)
+    call MaskToCapSel            ; CapSel = captured set
+    ld a,1
+    ld (HumanTurn),a             ; let HighlightCursor flash the in-hand card
+    call PaintAll                ; card still in Player[BestSlot] -> drawn in the hand
+    call HighlightCursor
+    call FlashCaptured
+    ld hl,CaptureJingle
+    call PlayJingle
+    ld b,2
+    call Delay
+    xor a
+    ld (HumanTurn),a
+    ld a,(BestSlot)              ; now remove it and resolve (no slide, no on-table show)
+    ld hl,Player
+    call addHLA
     ld (hl),0xFF
-    ld (Played),a
-    pop af
+    ld a,1
+    ld (RevealInPlace),a
+    ld a,(Played)
+    ld c,0
+    call ResolvePlay
+    xor a
+    ld (RevealInPlace),a
+    call PaintAll
+    ld b,1
+    call Delay
+    ret
+.demoslide:
+    ld a,(BestSlot)
+    ld hl,Player
+    call addHLA
+    ld (hl),0xFF
+    ld a,(BestSlot)
     call HandCol
     ld (SlHandCol),a
     ld a,16
@@ -2244,11 +2319,8 @@ ZipCompact:
     xor a
     ld (HideTable),a
     call DrawZipCards            ; draw the survivors at ZipCur[] onto the shadow
-    ld a,8                       ; only the table band changes -> delta-blit rows 8..15
-    ld (DBstart),a               ; (tear-free re-pack: small band copy stays ahead of the beam)
-    ld a,16
-    ld (DBend),a
-    call DeltaBlit
+    call Blit                    ; HALT + full copy (the whole table band changes each frame ->
+                                 ; the per-cell delta can't stay ahead of the beam here; plain blit)
     ; advance every survivor one notch toward its target; note if any still moving
     xor a
     ld (Tmp0),a                  ; "moved" flag
