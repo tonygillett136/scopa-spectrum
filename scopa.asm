@@ -82,6 +82,7 @@ AceRule:   defs 1                  ; optional "asso piglia tutto": ace takes who
 AceSweepOpt: defs 1                ; 1 = the current capture is an ace-sweep -> Scopa d'Assi: no scopa
 ChoiceMade: defs 1                 ; 1 = player picked the capture before the slide (card stays in hand)
 ChoiceVal:  defs 1                 ; the pre-chosen capture option index
+RevealInPlace: defs 1              ; 1 = crowded-table capture shown in place (hand/opp-slot) -> ResolvePlay skips the on-table ShowCapture
 CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen title.rle (2-screen rotation)
 DemoMode:   defs 1                 ; 1 = attract / CPU-vs-CPU self-play demo is running
 HandPtr:    defs 2                 ; aiSelectPlay's hand source: Opp normally, Player for the demo's player turn
@@ -561,6 +562,68 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 33
+    ; crowded-table PLAYER keep-in-hand: full table + a player card that captures. Enter PlayerTurn;
+    ; the driver presses SPACE -> the card should flash in-hand (not slide), resolve: PPileN 2, TableN 5.
+    ld a,1
+    ld (Difficulty),a
+    call NewMatch
+    call NewRound
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),1
+    inc hl
+    ld (hl),2
+    inc hl
+    ld (hl),3
+    inc hl
+    ld (hl),4
+    inc hl
+    ld (hl),5
+    ld a,6
+    ld (TableN),a
+    ld a,15                       ; Player[0] = coppe 6 -> captures Table's denari 6 (id 5)
+    ld (Player),a
+    ld a,0xFF
+    ld (Player+1),a
+    ld (Player+2),a
+    xor a
+    ld (Cursor),a
+    call PlayerTurn
+.h33:
+    jr .h33
+    ENDIF
+    IF TESTMODE == 32
+    ; crowded-table opp REVEAL-IN-PLACE: full table (6 cards) + an opp card that captures one.
+    ; OppTurn should turn the card face-up at its slot (not slide) and resolve: OPileN 2, TableN 5.
+    ld a,1
+    ld (Difficulty),a
+    call NewMatch
+    call NewRound
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),1
+    inc hl
+    ld (hl),2
+    inc hl
+    ld (hl),3
+    inc hl
+    ld (hl),4
+    inc hl
+    ld (hl),5                     ; Table = ids 0..5 (values 1..6)
+    ld a,6
+    ld (TableN),a
+    ld a,15                       ; Opp[0] = coppe 6 (value 6) -> captures Table's denari 6 (id 5)
+    ld (Opp),a
+    ld a,0xFF
+    ld (Opp+1),a
+    ld (Opp+2),a
+    call OppTurn
+.h32:
+    jr .h32
+    ENDIF
     IF TESTMODE == 31
     ; band DeltaBlit (zip path): full-paint a board, change a TABLE card (band rows 8..15 only),
     ; re-render with the band delta. screen must == shadow EVERYWHERE (band updated, rest intact).
@@ -1034,6 +1097,46 @@ PlayerTurn:
     ld a,1
     ld (ChoiceMade),a
 .commit:
+    ld a,(OptionN)
+    or a
+    jr z,.doslide                ; a drop (no capture) must land on the table -> slide
+    ld a,(TableN)
+    cp 6
+    jr c,.doslide                ; table not crowded -> slide as usual
+    ; --- crowded-table capture: keep the card FLASHING IN YOUR HAND, no slide onto the clutter ---
+    ld a,(ChoiceMade)
+    or a
+    jr z,.kih0
+    ld a,(ChoiceVal)             ; multi: the chosen option index
+    jr .kihshow
+.kih0:
+    xor a                        ; single capture: the only option
+.kihshow:
+    call MaskToCapSel            ; CapSel = the captured set
+    call PaintAll                ; card is still in your hand -> drawn there
+    call HighlightCursor         ; flash it in the hand
+    call FlashCaptured           ; flash the table cards it takes
+    ld hl,CaptureJingle
+    call PlayJingle
+    ld b,2
+    call Delay
+    ld a,(Cursor)                ; now remove it and resolve (no slide, no on-table show)
+    ld hl,Player
+    call addHLA
+    ld (hl),0xFF
+    xor a
+    ld (HumanTurn),a
+    ld a,1
+    ld (RevealInPlace),a
+    ld a,(Played)
+    ld c,0
+    call ResolvePlay
+    xor a
+    ld (RevealInPlace),a
+    call FixCursor
+    call PaintAll
+    ret
+.doslide:
     ld a,(Cursor)                ; now take the card out of the hand and slide it to the table
     ld hl,Player
     call addHLA
@@ -1129,6 +1232,45 @@ OppTurn:
     pop af                       ; the played slot
     call HandCol                 ; CPU backs are drawn at their REAL slot columns (with gaps,
     ld (SlHandCol),a             ; like the player's hand), so slide from the card's true slot
+    ; --- crowded-table capture? turn the card FACE-UP IN PLACE at its slot, don't slide ---
+    ld a,(Played)
+    call valueOf
+    call findAllCaptures          ; Options[]/OptionN for the played card
+    ld a,(OptionN)
+    or a
+    jr z,.oppslide                ; a drop must land on the table -> slide
+    ld a,(TableN)
+    cp 6
+    jr c,.oppslide                ; not crowded -> slide as usual
+    ld a,(AIOpt)
+    call MaskToCapSel             ; CapSel = the captured set
+    call PaintAll                 ; board with the opp slot now a gap
+    ld a,(SlHandCol)
+    ld d,a
+    ld e,0
+    ld a,(Played)
+    call BlitCard                 ; reveal the played card face-up at its slot (top row)
+    ld a,(SlHandCol)
+    ld d,a
+    ld e,0
+    call FlashCardRegion          ; flash it in place
+    call FlashCaptured            ; flash the table cards it takes
+    ld hl,CaptureJingle
+    call PlayJingle
+    ld b,2
+    call Delay
+    ld a,1
+    ld (RevealInPlace),a
+    ld a,(Played)
+    ld c,1
+    call ResolvePlay
+    xor a
+    ld (RevealInPlace),a
+    call PaintAll
+    ld b,1
+    call Delay
+    ret
+.oppslide:
     xor a
     ld (SlRow),a                 ; rows 0 -> 8 (CPU hand at top, 8 smooth synced steps)
     ld a,1
@@ -1876,7 +2018,11 @@ ResolvePlay:
     ld a,(AIOpt)                 ; strong AI's pre-chosen capture option
 .applyopt:
     call MaskToCapSel
+    ld a,(RevealInPlace)         ; crowded-table capture already shown in place -> skip the table draw
+    or a
+    jr nz,.shown
     call ShowCapture             ; show the played card + flash what it takes
+.shown:
     ld a,(TableN)
     ld d,a
     ld e,0
@@ -4706,6 +4852,69 @@ DrawPlayedCard:
     ld a,(Played)
     ld e,8
     call BlitCard
+    ret
+
+; FlashCaptured: flash every captured table card (CapSel set) via the hardware FLASH bit,
+; held by the caller's Delay. Shared by the crowded-table in-place capture displays.
+FlashCaptured:
+    ld a,(TableN)
+    ld c,a
+    ld e,0
+.fc:
+    ld a,e
+    cp c
+    jr nc,.fcd
+    ld hl,CapSel
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.fcn
+    ld a,e
+    push bc
+    push de
+    call FlashTableCard
+    pop de
+    pop bc
+.fcn:
+    inc e
+    jr .fc
+.fcd:
+    ret
+
+; FlashCardRegion: D=col, E=char-row -> OR the FLASH bit into a 6x8 card's attribute cells
+; (so a card drawn straight to the screen flashes in place). Cleared by the next PaintAll.
+FlashCardRegion:
+    ld h,0
+    ld l,e
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; E*32
+    ld a,l
+    add a,d
+    ld l,a
+    ld a,h
+    adc a,0x58
+    ld h,a                       ; HL = 0x5800 + E*32 + col
+    ld c,8
+.fr_row:
+    ld b,6
+    push hl
+.fr_col:
+    ld a,(hl)
+    or 0x80
+    ld (hl),a
+    inc hl
+    djnz .fr_col
+    pop hl
+    push bc
+    ld bc,32
+    add hl,bc
+    pop bc
+    dec c
+    jr nz,.fr_row
     ret
 
 ; ShowCapture: draw the played card onto the table, flash it + the captured
