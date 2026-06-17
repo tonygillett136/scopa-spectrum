@@ -661,3 +661,56 @@ RenderShadow holds the Table pointer in IX across BlitCard calls. Same total wor
 no timing-budget hit. VERIFIED in ZEsarUX: static board (TESTMODE 20) pixel-perfect, slide (TESTMODE 9)
 lands clean -- no garbage from the restructured addressing. code 10615B (1675B free); tap 41956B. CRT
 confirm of the tear-free colour = Tony.
+
+## Attract / demo mode + sound on/off + dead-code trim (2026-06-17)
+Tony approved: (1) 45s title idle, (2) "make it like the normal game", (3) a subtle on-screen
+"press SPACE to play"; plus a Sound on/off menu option (default on; demo silent); and "clean up the
+dead code". Implemented as af668cc.
+
+DEMO is the REAL match loop with the AI driving both sides -- not a separate renderer, so it can never
+drift from the live game:
+- EnterDemo sets Difficulty=Hard, AceRule=on, DemoMode=1, then jp RunMatch. The match loops through the
+  normal result + final-score screens (~10s holds) forever until SPACE.
+- DemoPlayerTurn: PlayerTurn gets a one-line guard at the top (DemoMode -> jp DemoPlayerTurn) so the AI
+  also plays the player's hand. aiSelectPlay now reads its hand via a new HandPtr word (was a hard-coded
+  ld hl,Opp); OppTurn sets HandPtr=Opp, DemoPlayerTurn sets HandPtr=Player and routes through the player's
+  normal play path (ChoiceVal=AIOpt, ChoiceMade=1) so capture/slide/scoring are identical to a human move.
+- DemoCheckSpace (reads 0x7FFE bit0; on SPACE: ld sp,0xBFF0 / DemoMode=0 / jp NewGame) is polled from the
+  TOP of Delay and inside the SlideIn HALT loop -> SPACE during any pause/slide bails to SelectDifficulty.
+  Clobbers only A (safe at both sites).
+- WaitSpaceOrDemo replaces WaitSpace at the per-round + opp-win waits; in demo it is a timed 10s hold (zero
+  FRAMES, spin 500 frames calling DemoCheckSpace) then returns; outside demo it is jp WaitSpace. WaitWinner
+  gets a demo guard at its top (jp nz,WaitSpaceOrDemo) so the player-win shimmer does not block.
+- DemoOverlay (called at the end of RenderShadow, drawn into the shadow so Blit carries it): a thin row-0
+  banner -- attr strip cols 4..27 = 0x47 (bright white on black) + centred "PRESS SPACE TO PLAY".
+  ShowResults shows the same prompt at row 21 (gated ret z when not demo); the final-score screen already
+  shows "PRESS SPACE TO PLAY AGAIN". (Cards are 64px = 8 char-rows and the three bands tile the full screen
+  height, so there is no spare felt strip mid-board -- the prompt is a HUD banner over the decorative
+  face-down opp card tops.)
+- Idle timer in ShowTitle: at .startwait (post-music; re-entered after the help screen) zero FRAMES; in
+  .wait, idle >= 2250 frames (45s @ 50Hz) with no key -> EnterDemo. Music runs interrupts-off so the 45s
+  correctly begins after it.
+
+SOUND: new SoundOn byte (boot=1). SoundEnabled helper returns Z (silent) if DemoMode OR !SoundOn; gates
+NeapolitanSound, PlayTitleMusic, PlayJingle (call SoundEnabled; ret z). SelectDifficulty re-laid out (SCOPA
+r2, SKILL r6, EASY/MED/HARD r9/11/13, asso r16 + sub r18, "5 SOUND ON/OFF" r21); key 4 = asso, key 5 = sound
+(debounced); OFF red 0x42 / ON green 0x44. SelectDifficulty resets AceRule=0 on entry but PRESERVES SoundOn,
+so the demo's hard+asso settings never leak into the human's next game while the user's sound choice persists.
+
+DEAD CODE REMOVED (0 callers): CaptureBeep, ScopaBeep, WinJingle, LoseSound (Beep kept -- NeapolitanSound
+uses it).
+
+TESTMODE 23 = drop straight into self-play (skip the idle wait); 24 = render ShowResults in demo mode.
+VERIFIED in ZEsarUX: banner on the live board + results grid + final-score screen; SPACE exits the demo to
+SelectDifficulty (DemoMode 1->0, AceRule reset, SoundON preserved); 45s idle -> demo (real-time, DemoMode
+0->1 + TableN->4 at ~58s = ~13s music + 45s); menu key-5 toggles SoundOn 1<->0 (red/green); the normal game
+is unaffected (no banner, human plays + scores). Sound silencing is logic-only (no headless audio) -> Tony's
+real-hardware ear.
+
+.z80 RECAPTURE: capture at the post-music .wait (interrupts on) and poke FRAMES (0x5C78)=0 before
+snapshot-save so the in-browser copy gets a fresh ~45s before auto-demo. PickTitle is deterministic from a
+snapshot boot, so every capture picked the same title (coins) -- temporarily forced PickTitle (and 1 ->
+and 0 = TitleRle) to capture the sword scopa.z80, then reverted and rebuilt production. Site: refreshed
+tap/tzx/sna + both .z80s, added the Sound key + an "It plays itself" feature card + a title tip to
+index.html, redeployed to Cloudflare; verified live (root 200 + COOP/COEP, new copy, downloads byte-match).
+code CodeEnd=0xAACF (~1329B free); tap 42300B / tzx 42483B. PENDING Tony CRT play-test of the demo + sound.
