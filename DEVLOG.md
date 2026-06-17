@@ -794,3 +794,17 @@ holds byte-exact across an A->B board change (new TESTMODE 29: 0/6144 bitmap + 0
 self-play demo and a normal human game stay clean through many board changes. Tear-free-ness = Tony's CRT.
 Perf: full diff ~217k T/PaintAll (~17% slower than the old Blit, absorbed by inter-turn pauses; a felt-skip
 on rows 2-21 could make it a net win if needed). code CodeEnd 0xACFF (769 B free); tap 42849B / tzx 43032B.
+
+## Slide ease-out (2026-06-17)
+Tony: slides feel better with a touch of deceleration as the card reaches its destination. The
+slide is character-cell (8px) aligned on both axes -- that alignment keeps the card's colour clean,
+and moving sub-cell vertically would cause attribute-clash fringing (a white sliver above/below the
+white-on-cyan card as it crosses cell boundaries). So the ease is in the TIME domain, not sub-pixel:
+keep the clean 8px steps, hold the later ones a touch longer. SlideIn carries a step counter and
+reads SlEaseTab (extra hold-frames per step = [0,0,0,0,0,1,1,2]); the first 5 steps whoosh at
+8px/frame, the last 3 decelerate (2,2,3 frames) and the card settles. Held frames still poll
+DemoCheckSpace so the demo SPACE-exit stays responsive; both axes hold together so the whole diagonal
+eases. Curve is one defb -> trivially tunable. VERIFIED: timed one SlideIn via FRAMES (TESTMODE 30) =
+13 with the table zeroed, 17 with the curve -> ease adds exactly sum(SlEaseTab)=4; slides still land
+clean (the ease only adds HALTs at the drawn position, final position unchanged). Feel = Tony's CRT.
+code 733 B free; tap 42871B / tzx 43054B.
