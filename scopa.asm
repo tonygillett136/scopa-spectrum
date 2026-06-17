@@ -562,6 +562,60 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 35
+    ; re-pack hybrid SMOOTH path: 3-card table, cards 1&2 shifted right by 2 (narrow moving block).
+    ; ZipMoveSpan should give W<=18 -> smooth slice; ZipCompact should land them on 1,6,11.
+    call NewMatch
+    call NewRound
+    ld a,3
+    ld (TableN),a
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),11
+    inc hl
+    ld (hl),22
+    ld hl,ZipCur
+    ld (hl),1
+    inc hl
+    ld (hl),8
+    inc hl
+    ld (hl),13                   ; old cols 1,8,13 -> targets 1,6,11 (W = 13)
+    call ZipCompact
+.h35:
+    jr .h35
+    ENDIF
+    IF TESTMODE == 36
+    ; re-pack hybrid SNAP path: 5-card table all shifted right by 5 (wide moving block).
+    ; ZipMoveSpan W=31 -> snap; ZipCompact should still land them on 1,6,11,16,21.
+    call NewMatch
+    call NewRound
+    ld a,5
+    ld (TableN),a
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),11
+    inc hl
+    ld (hl),22
+    inc hl
+    ld (hl),33
+    inc hl
+    ld (hl),4
+    ld hl,ZipCur
+    ld (hl),6
+    inc hl
+    ld (hl),11
+    inc hl
+    ld (hl),16
+    inc hl
+    ld (hl),21
+    inc hl
+    ld (hl),26                   ; old 6,11,16,21,26 -> targets 1,6,11,16,21 (W = 31)
+    call ZipCompact
+.h36:
+    jr .h36
+    ENDIF
     IF TESTMODE == 34
     ; demo player crowded keep-in-hand: full table + a capturing card, DemoPlayerTurn auto-plays.
     ; Should flash in-hand (not slide) and resolve: PPileN 2, TableN 5.
@@ -2310,6 +2364,22 @@ ZipCompact:
     ret z                        ; table emptied (e.g. a scopa) -> nothing to zip
     call TableStep
     ld (ZipStep),a               ; new column step
+    ; --- decide smooth slice vs snap by how WIDE the moving block is ---
+    call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
+    cp 19
+    jr c,.zsmooth                ; <=18 cols in motion -> slice fits ahead of the beam -> smooth
+    ; crowded: too wide to copy ahead of the beam every frame -> snap to final positions in ONE
+    ; frame (a single brief blink instead of the sustained tearing of a full-band slide).
+    call ZipSnap                 ; ZipCur[k] = target column for every survivor
+    ld a,1
+    ld (HideTable),a
+    call RenderShadow
+    xor a
+    ld (HideTable),a
+    call DrawZipCards
+    call Blit
+    jr .zipdone
+.zsmooth:
     xor a
     ld (ZipFrames),a
 .frame:
@@ -2319,8 +2389,7 @@ ZipCompact:
     xor a
     ld (HideTable),a
     call DrawZipCards            ; draw the survivors at ZipCur[] onto the shadow
-    call Blit                    ; HALT + full copy (the whole table band changes each frame ->
-                                 ; the per-cell delta can't stay ahead of the beam here; plain blit)
+    call BlitSlice               ; copy ONLY the moving slice (cols c0..31, table band) -> tear-free
     ; advance every survivor one notch toward its target; note if any still moving
     xor a
     ld (Tmp0),a                  ; "moved" flag
@@ -2377,6 +2446,153 @@ ZipCompact:
 .zipdone:
     xor a
     ld (ScrOfs),a
+    ret
+
+ZipSliceC0 equ 0x7E08            ; re-pack: leftmost column in motion (slice left edge)
+ZipSliceW  equ 0x7E09            ; re-pack: slice width = 32 - ZipSliceC0
+
+; ZipMoveSpan: -> A = width of the moving block (= 32 - leftmost moving column), and stores
+; that leftmost column in ZipSliceC0. A card is "moving" if its current column (ZipCur[k])
+; differs from its target (1 + ZipStep*k); the leftmost position any moving card occupies is
+; min over those of min(current, target). Wide block -> snap; narrow -> tear-free slice.
+ZipMoveSpan:
+    ld a,(TableN)
+    ld b,a
+    ld a,(ZipStep)
+    ld c,a
+    ld d,1                       ; D = target column (1 + step*k)
+    ld e,0                       ; E = k
+    ld a,32
+    ld (ZipSliceC0),a            ; running min column (start high)
+    xor a
+    ld (ZipSliceW),a             ; running MAX column (start low; becomes width at the end)
+.zms:
+    ld hl,ZipCur
+    ld a,e
+    call addHLA
+    ld a,(hl)                    ; A = ZipCur[k] (current column)
+    cp d
+    jr z,.zmsn                   ; current == target -> not moving, ignore
+    call ZMSupd                  ; extend [min,max] with the current column (A)
+    ld a,d
+    call ZMSupd                  ; ...and with the target column
+.zmsn:
+    ld a,d
+    add a,c
+    ld d,a                       ; target += step
+    inc e
+    djnz .zms
+    ld a,(ZipSliceW)             ; max column reached by any moving card
+    add a,6                      ; + card width = right edge of the moving block
+    ld hl,ZipSliceC0
+    sub (hl)                     ; A = width = (max+6) - min
+    ld (ZipSliceW),a             ; store the slice width
+    ret
+; ZMSupd: A = a column -> grow the [ZipSliceC0(min), ZipSliceW(max)] span to include it.
+ZMSupd:
+    ld hl,ZipSliceC0
+    cp (hl)
+    jr nc,.notmin
+    ld (hl),a
+.notmin:
+    ld hl,ZipSliceW
+    cp (hl)
+    ret c
+    ld (hl),a
+    ret
+
+; ZipSnap: set every survivor's ZipCur[k] straight to its target column (1 + ZipStep*k).
+ZipSnap:
+    ld a,(TableN)
+    ld b,a
+    ld a,(ZipStep)
+    ld c,a
+    ld d,1
+    ld e,0
+.zsn:
+    ld hl,ZipCur
+    ld a,e
+    call addHLA
+    ld a,d
+    ld (hl),a
+    ld a,d
+    add a,c
+    ld d,a
+    inc e
+    djnz .zsn
+    ret
+
+; BlitSlice: HALT, then copy columns [ZipSliceC0 .. 31] of the table band (char-rows 8..15)
+; from the shadow buffer to the screen, raster-order, per char-row LDIR. Small enough (the
+; slice is <=16 cols) to finish ahead of the descending beam -> tear-free re-pack frame.
+BlitSlice:
+    halt                         ; ZipSliceC0/ZipSliceW already set by ZipMoveSpan
+    di
+    ld a,8
+    ld (Tmp0),a                  ; char-row 8..15
+.bsrow:
+    ld a,(Tmp0)                  ; HL = screen addr of (row, c0), pixel line 0
+    and 0x18
+    or 0x40
+    ld h,a
+    ld a,(Tmp0)
+    and 7
+    rrca
+    rrca
+    rrca
+    ld e,a
+    ld a,(ZipSliceC0)
+    add a,e
+    ld l,a
+    ld a,8
+    ld (Tmp1),a                  ; 8 pixel lines
+.bsline:
+    push hl                      ; screen line start
+    ld d,h
+    ld e,l                       ; DE = screen dst
+    ld a,h
+    add a,0x20
+    ld h,a                       ; HL = shadow src
+    ld a,(ZipSliceW)
+    ld c,a
+    ld b,0
+    ldir                         ; copy W bytes (shadow -> screen)
+    pop hl
+    inc h                        ; next pixel line
+    ld a,(Tmp1)
+    dec a
+    ld (Tmp1),a
+    jr nz,.bsline
+    ; colour row (shadow -> screen): 0x5800 + row*32 + c0, W cells
+    ld a,(Tmp0)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; row*32
+    ld a,(ZipSliceC0)
+    add a,l
+    ld l,a
+    ld a,h
+    adc a,0x58
+    ld h,a                       ; HL = screen attr (row, c0)
+    ld d,h
+    ld e,l
+    ld a,h
+    add a,0x20
+    ld h,a                       ; HL = shadow attr
+    ld a,(ZipSliceW)
+    ld c,a
+    ld b,0
+    ldir
+    ld hl,Tmp0
+    inc (hl)
+    ld a,(hl)
+    cp 16
+    jr c,.bsrow
+    ei
     ret
 
 ; DrawZipCards: draw each surviving table card (Table[k]) at column ZipCur[k], row 8,
