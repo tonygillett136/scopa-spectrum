@@ -80,6 +80,9 @@ AceSweepOpt: defs 1                ; 1 = the current capture is an ace-sweep -> 
 ChoiceMade: defs 1                 ; 1 = player picked the capture before the slide (card stays in hand)
 ChoiceVal:  defs 1                 ; the pre-chosen capture option index
 CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen title.rle (2-screen rotation)
+DemoMode:   defs 1                 ; 1 = attract / CPU-vs-CPU self-play demo is running
+HandPtr:    defs 2                 ; aiSelectPlay's hand source: Opp normally, Player for the demo's player turn
+SoundOn:    defs 1                 ; user sound toggle (skill menu); 1 = on (default)
 
     ORG 0x8000
 Start:
@@ -90,6 +93,11 @@ Start:
     ei                           ; interrupts on -> HALT can sync screen updates to vblank
     xor a
     ld (HideTable),a             ; default: RenderShadow draws the table normally
+    ld (DemoMode),a              ; demo off
+    ld hl,Opp
+    ld (HandPtr),hl              ; AI evaluates the opponent hand by default
+    ld a,1
+    ld (SoundOn),a               ; sound on by default
     IF TESTMODE == 1
     call ScoreTestSetup
     call ScoreRound
@@ -505,6 +513,27 @@ Start:
 .h22:
     jr .h22                      ; plain SPACE -> stay here (proves no false trigger)
     ENDIF
+    IF TESTMODE == 23
+    ; attract demo: drop straight into CPU-vs-CPU self-play (Hard + asso piglia tutto),
+    ; skipping the title idle timer.
+    ld a,2
+    ld (Difficulty),a
+    ld a,1
+    ld (AceRule),a
+    ld (DemoMode),a
+    jp RunMatch
+    ENDIF
+    IF TESTMODE == 24
+    ; render the per-round ShowResults grid in demo mode -> verify the "PRESS SPACE TO PLAY"
+    ; prompt under the scoring grid, then hold via the demo wait.
+    ld a,1
+    ld (DemoMode),a
+    call NewMatch
+    call ShowResults
+    call WaitSpaceOrDemo
+.h24:
+    jr .h24
+    ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
     ld hl,Table
@@ -636,7 +665,7 @@ RunMatch:
     or b
     call nz,ShowNeapolitan       ; brief NEAPOLITAN screen + rising scale
     call ShowResults
-    call WaitSpace
+    call WaitSpaceOrDemo
     ld a,(Leader)                ; the deal alternates each round
     xor 1
     ld (Leader),a
@@ -657,7 +686,7 @@ RunMatch:
     jr z,.round                  ; tie at/over 11 -> another round
     jr nc,.pwon
     call ShowWinOpp
-    call WaitSpace
+    call WaitSpaceOrDemo
     ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
     in a,(0xFE)                  ; read the CAPS-SHIFT half-row (0xFEFE)
     bit 0,a                      ; CAPS SHIFT: 0 = pressed
@@ -682,6 +711,71 @@ NewGame:                         ; skill/rules menu -> new match. The hidden SHI
     ld (BorderC),a
     call SelectDifficulty
     jp RunMatch
+
+; EnterDemo: 45s idle on the title -> attract / self-play demo (CPU vs CPU, Hard + asso piglia
+; tutto, silent). Loops forever until the watcher presses SPACE.
+EnterDemo:
+    ld a,2
+    ld (Difficulty),a            ; Hard
+    ld a,1
+    ld (AceRule),a               ; asso piglia tutto on
+    ld (DemoMode),a              ; demo on (also forces sound off via SoundEnabled)
+    jp RunMatch
+
+; DemoCheckSpace: during the demo, a SPACE press abandons the throwaway match and returns to
+; the skill menu. No-op outside the demo. Called from the pacing Delays / slide / result waits.
+DemoCheckSpace:
+    ld a,(DemoMode)
+    or a
+    ret z                        ; not in demo -> nothing to do
+    ld a,0x7F
+    in a,(0xFE)                  ; 0x7FFE half-row: SPACE = bit 0 (0 = pressed)
+    bit 0,a
+    ret nz                       ; SPACE not pressed
+    ld sp,0xBFF0                 ; SPACE -> abandon the in-progress match (it's throwaway)
+    xor a
+    ld (DemoMode),a
+    jp NewGame                   ; -> skill menu, ready for the human
+
+; WaitSpaceOrDemo: in the demo, hold the screen ~10s (SPACE exits via DemoCheckSpace) then
+; return so the demo plays on; otherwise behave exactly like WaitSpace.
+WaitSpaceOrDemo:
+    ld a,(DemoMode)
+    or a
+    jp z,WaitSpace
+    ld hl,0
+    ld (23672),hl                ; zero the ROM frame counter
+.dw:
+    halt
+    call DemoCheckSpace          ; SPACE -> leaves the demo (never returns)
+    ld hl,(23672)
+    ld de,500                    ; 10s @ 50 Hz
+    or a
+    sbc hl,de
+    jr c,.dw
+    ret
+
+; DemoOverlay: in attract/demo mode, a thin top banner telling the watcher how to take
+; over. Drawn into the current render target (the shadow buffer during RenderShadow), so
+; Blit carries it onto the board with everything else. No-op outside the demo.
+DemoOverlay:
+    ld a,(DemoMode)
+    or a
+    ret z
+    ld a,(ScrOfs)                ; attribute strip on row 0, cols 4..27 -> a tidy HUD bar
+    add a,0x58                   ; 0x58 (live screen) or 0x78 (shadow)
+    ld h,a
+    ld l,4
+    ld b,24
+.attr:
+    ld (hl),0x47                 ; bright white ink on black paper
+    inc hl
+    djnz .attr
+    ld hl,StrDemoPrompt          ; centred within the bar
+    ld d,6
+    ld e,0
+    jp PrintStr
+StrDemoPrompt: defb "PRESS SPACE TO PLAY",0
 
 NewMatch:
     ld a,5
@@ -750,6 +844,9 @@ PlayRound:
 
 ; =================== player turn ===================
 PlayerTurn:
+    ld a,(DemoMode)
+    or a
+    jp nz,DemoPlayerTurn        ; attract demo -> the CPU plays the player's hand too
     ld a,1
     ld (HumanTurn),a            ; the player's card may flash now
     call FixCursor
@@ -884,6 +981,8 @@ CursorPrev:
 
 ; =================== opponent (AI v0) ===================
 OppTurn:
+    ld hl,Opp
+    ld (HandPtr),hl             ; AI evaluates the opponent's hand
     xor a
     ld (HumanTurn),a            ; CPU's turn -> the player's card must not flash
     call PaintAll
@@ -915,6 +1014,49 @@ OppTurn:
     call Delay
     ret
 
+; DemoPlayerTurn: in the attract demo the CPU plays the PLAYER's hand too. Mirrors OppTurn but
+; evaluates Player[] (HandPtr), slides from the bottom row, and routes the capture through the
+; PLAYER path (Who=0) -- so its captured cards go to the player's pile. ResolvePlay's player path
+; uses ChoiceMade/ChoiceVal (no human here), so we feed it the AI's chosen option (AIOpt).
+DemoPlayerTurn:
+    ld hl,Player
+    ld (HandPtr),hl             ; AI evaluates the player's hand
+    xor a
+    ld (HumanTurn),a
+    call PaintAll
+    ld b,1
+    call Delay
+    call aiSelectPlay            ; A = best slot, sets AIOpt
+    ld a,(AIOpt)
+    ld (ChoiceVal),a             ; feed the AI's capture choice into the player path
+    ld a,1
+    ld (ChoiceMade),a
+    ld a,(BestSlot)              ; the chosen slot (aiSelectPlay returned it in A, but reload to be safe)
+    push af
+    ld hl,Player
+    call addHLA
+    ld a,(hl)
+    ld (hl),0xFF
+    ld (Played),a
+    pop af
+    call HandCol
+    ld (SlHandCol),a
+    ld a,16
+    ld (SlRow),a                 ; player hand at the bottom (rows 16 -> 8)
+    ld a,0xFF
+    ld (SlRowStep),a
+    ld a,(TableN)
+    call TableSlotCol
+    ld (SlDestCol),a
+    call SlideIn
+    ld a,(Played)
+    ld c,0                       ; Who = player
+    call ResolvePlay
+    call PaintAll
+    ld b,1
+    call Delay
+    ret
+
 ; ===== strong AI: weighted evaluation of every legal play =====
 ; Mirrors ai.js (medium: sweep-avoidance on). MY suit convention: denari=ids0-9,
 ; settebello=id6. Scores are signed 16-bit in ScoreW.
@@ -927,7 +1069,7 @@ aiSelectPlay:                    ; -> A = chosen hand slot; sets AIOpt
     xor a
     ld (AISlot),a
 .slot:
-    ld hl,Opp
+    ld hl,(HandPtr)              ; the hand being evaluated (Opp, or Player in the demo)
     ld a,(AISlot)
     call addHLA
     ld a,(hl)
@@ -2610,6 +2752,7 @@ WaitSpace:
     ret
 
 Delay:
+    call DemoCheckSpace          ; demo: a SPACE in any pause drops back to the menu (clobbers A only)
 .d1:
     ld de,0
 .d2:
@@ -2639,44 +2782,23 @@ Beep:
     ld a,5
     out (254),a
     ret
-CaptureBeep:
-    ld b,60
-    ld de,80
-    jp Beep
-ScopaBeep:
-    ld b,40
-    ld de,150
-    call Beep
-    ld b,55
-    ld de,55
-    jp Beep
 
-; WinJingle: ascending fanfare
-WinJingle:
-    ld b,35
-    ld de,190
-    call Beep
-    ld b,35
-    ld de,130
-    call Beep
-    ld b,35
-    ld de,90
-    call Beep
-    ld b,60
-    ld de,60
-    jp Beep
-
-; LoseSound: low descending buzz
-LoseSound:
-    ld b,40
-    ld de,120
-    call Beep
-    ld b,55
-    ld de,220
-    jp Beep
+; SoundEnabled: Z = stay silent (user turned sound off, OR the demo is running), NZ = play.
+SoundEnabled:
+    ld a,(DemoMode)
+    or a
+    jr nz,.off
+    ld a,(SoundOn)
+    or a
+    ret                          ; Z if SoundOn == 0
+.off:
+    xor a
+    ret                          ; Z
 
 ; NeapolitanSound: a pleasing run up the scale (delays descend -> pitch rises)
 NeapolitanSound:
+    call SoundEnabled
+    ret z
     ld hl,ScaleTbl
     ld c,9
 .ns:
@@ -2925,6 +3047,9 @@ ShowTitle:
     ret z                        ; SPACE during music -> straight to the game
     cp 2
     jr z,.help                   ; H during music -> rules screen
+.startwait:
+    ld hl,0
+    ld (23672),hl                ; (re)start the 45s attract-mode idle timer
 .wait:
     call ReadKeys
     bit 2,a
@@ -2932,7 +3057,13 @@ ShowTitle:
     ld a,0xBF                    ; H half-row (ENTER L K J H); H = bit 4
     in a,(0xFE)
     bit 4,a
-    jr nz,.wait                  ; H not pressed -> keep waiting
+    jr z,.help                   ; H pressed -> rules screen
+    ld hl,(23672)                ; idle 45s with no key -> attract / self-play demo
+    ld de,2250                   ; 45s @ 50 Hz
+    or a
+    sbc hl,de
+    jr c,.wait                   ; not yet -> keep waiting
+    jp EnterDemo
 .help:
     call ShowHowToPlay           ; H -> rules screen, then redraw the same title
     ld hl,(CurTitle)
@@ -2942,7 +3073,7 @@ ShowTitle:
     in a,(0xFE)
     bit 4,a
     jr z,.drainh                 ; wait for H release
-    jr .wait
+    jr .startwait                ; back to waiting, idle timer reset (player was active)
 .go:
     call ReadKeys                ; drain SPACE
     or a
@@ -3069,43 +3200,44 @@ SelectDifficulty:
     call PrintStr
     ld hl,StrSkill
     ld d,7
-    ld e,7
+    ld e,6
     call PrintStr
     ld hl,StrEasy
     ld d,11
-    ld e,11
+    ld e,9
     call PrintStr
     ld hl,StrMed
     ld d,11
-    ld e,14
+    ld e,11
     call PrintStr
     ld hl,StrHard
     ld d,11
-    ld e,17
+    ld e,13
     call PrintStr
-    ld hl,StrAssoSub             ; subtitle under the toggle
+    ld hl,StrAssoSub             ; subtitle under the rule toggle
     ld d,5
-    ld e,22
+    ld e,18
     call PrintStr
     ld e,2                        ; tricolore-flavoured colouring
     ld a,0x46
     call FillAttrRow              ; SCOPA gold
-    ld e,7
+    ld e,6
     ld a,0x45
     call FillAttrRow              ; prompt cyan
-    ld e,11
+    ld e,9
     ld a,0x44
     call FillAttrRow              ; EASY green
-    ld e,14
+    ld e,11
     ld a,0x47
     call FillAttrRow              ; MEDIUM white
-    ld e,17
+    ld e,13
     ld a,0x42
     call FillAttrRow              ; HARD red
-    ld e,22
+    ld e,18
     ld a,0x05
     call FillAttrRow              ; subtitle dim cyan
-    call .drawasso               ; toggle line (row 20)
+    call .drawasso               ; rule toggle (row 16)
+    call .drawsound              ; sound toggle (row 21)
 .w:
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
     in a,(c)
@@ -3117,6 +3249,8 @@ SelectDifficulty:
     jr z,.hard
     bit 3,a                      ; key 4 -> toggle the rule
     jr z,.toggle
+    bit 4,a                      ; key 5 -> toggle sound
+    jr z,.snd
     jr .w
 .toggle:
     ld a,(AceRule)
@@ -3129,6 +3263,17 @@ SelectDifficulty:
     bit 3,a
     jr z,.trel
     jr .w
+.snd:
+    ld a,(SoundOn)
+    xor 1
+    ld (SoundOn),a
+    call .drawsound
+.srel:                           ; debounce: wait for key 5 to be released
+    ld bc,0xF7FE
+    in a,(c)
+    bit 4,a
+    jr z,.srel
+    jr .w
 .easy:
     xor a
     jr .set
@@ -3140,7 +3285,7 @@ SelectDifficulty:
 .set:
     ld (Difficulty),a
     ret
-.drawasso:                       ; redraw the toggle line (row 20) from AceRule
+.drawasso:                       ; redraw the rule toggle line (row 16) from AceRule
     ld a,(AceRule)
     or a
     ld hl,StrAssoOff
@@ -3148,7 +3293,7 @@ SelectDifficulty:
     ld hl,StrAssoOn
 .dao:
     ld d,4
-    ld e,20
+    ld e,16
     call PrintStr
     ld a,(AceRule)
     or a
@@ -3156,7 +3301,26 @@ SelectDifficulty:
     jr z,.dac
     ld a,0x44                     ; ON  -> green
 .dac:
-    ld e,20
+    ld e,16
+    call FillAttrRow
+    ret
+.drawsound:                      ; redraw the sound toggle line (row 21) from SoundOn
+    ld a,(SoundOn)
+    or a
+    ld hl,StrSoundOff
+    jr z,.dso
+    ld hl,StrSoundOn
+.dso:
+    ld d,9
+    ld e,21
+    call PrintStr
+    ld a,(SoundOn)
+    or a
+    ld a,0x42                     ; OFF -> red
+    jr z,.dsc
+    ld a,0x44                     ; ON  -> green
+.dsc:
+    ld e,21
     call FillAttrRow
     ret
 
@@ -3167,6 +3331,8 @@ StrHard:  defb "3   HARD",0
 StrAssoOff: defb "4  ASSO PIGLIA TUTTO  OFF",0
 StrAssoOn:  defb "4  ASSO PIGLIA TUTTO  ON ",0
 StrAssoSub: defb "(ACE TAKES WHOLE TABLE)",0
+StrSoundOff: defb "5  SOUND  OFF",0
+StrSoundOn:  defb "5  SOUND  ON ",0
 
 ; FillAttrRow: E=char row, A=attr -> fill that whole attr row
 FillAttrRow:
@@ -3341,6 +3507,16 @@ ShowResults:
     ld a,0x46
     call FillAttrRow             ; MATCH gold
     call HighlightWinners        ; glow the winner's number green per category
+    ld a,(DemoMode)
+    or a
+    ret z                        ; normal game: caller owns the wait prompt
+    ld hl,StrDemoPrompt          ; demo: prompt under the scoring grid
+    ld d,6
+    ld e,21
+    call PrintStr
+    ld e,21
+    ld a,0x47                    ; bright white
+    call FillAttrRow
     ret
 
 ; HighlightWinners: for the 5 scored categories (CatWin 0..4 at rows 6,8,10,12,14) colour
@@ -3483,6 +3659,9 @@ ShowScoreAndPrompt:
 
 ; WaitWinner: tricolore border shimmer until SPACE (celebratory match-win wait)
 WaitWinner:
+    ld a,(DemoMode)
+    or a
+    jp nz,WaitSpaceOrDemo        ; demo: a timed 10s hold instead of the shimmer-until-SPACE
     call ReadKeys
     or a
     jr nz,WaitWinner             ; drain any held keys first
@@ -3640,6 +3819,7 @@ RenderShadow:
     ld d,0
     ld e,23
     call PrintNum
+    call DemoOverlay             ; demo: a "PRESS SPACE TO PLAY" banner across the top
     call HighlightCursor
     ret
 
@@ -3746,6 +3926,7 @@ SlideIn:
     add hl,de
     ld (SlColF),hl
     halt                         ; sync to the top of the frame
+    call DemoCheckSpace          ; demo: SPACE during a slide also bails to the menu (clobbers A only)
     ld a,(SlPrevCol)             ; lift the card off its old cell (restore the board)
     ld d,a
     ld a,(SlPrevRow)
@@ -4316,6 +4497,11 @@ BlitCard:
 
 ; PlayTitleMusic: play the tune once; SPACE skips. Returns A=1 if skipped, A=0 if finished.
 PlayTitleMusic:
+    call SoundEnabled
+    jr nz,.play
+    xor a                        ; silent -> behave as "music finished" (A=0)
+    ret
+.play:
     di                           ; the sample loop is timing-critical
     ld hl,0
     ld (Acc1),hl
@@ -4471,6 +4657,8 @@ ScaleTune:                       ; bass muted, rests between notes -> isolated p
 ; PlayJingle: HL = jingle data -> play it with the 2-voice engine (interrupts off for
 ; timing, like the title music). Short event fanfares.
 PlayJingle:
+    call SoundEnabled
+    ret z
     di
     push hl
     ld hl,0
