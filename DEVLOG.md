@@ -624,3 +624,14 @@ on). Verified end-to-end in ZEsarUX from the captured state: SPACE->difficulty->
 by checking each layer independently (DOM focus + keydown defaultPrevented; emulated state via ZEsarUX
 read_mem). Trade-off: no title music in the browser build (plays before the capture point; intact on
 the real-hardware tape/sna). Full reusable write-up in the JSSpeccy-embed reference memory. SITE DONE.
+
+## Hidden SHIFT+SPACE -> title menu (2026-06-17)
+At the end-of-match "PRESS SPACE TO PLAY AGAIN" prompt, holding CAPS SHIFT while pressing SPACE now
+returns to the title menu (re-pick difficulty / asso-piglia-tutto), instead of replaying at the same
+settings. Undocumented in the UI (Tony's call). Impl: the two win paths (.maybe opp-win + WaitSpace,
+.pwon player-win + WaitWinner) read the CAPS-SHIFT half-row (ld a,0xFE / in a,(0xFE) / bit 0,a; 0=pressed)
+right after the wait returns; if held -> jp NewGameFromTitle (black border -> ShowTitle -> SelectDifficulty
+-> RunMatch; the boot now shares this entry). Safe because ReadKeys only scans O/P/SPACE, so holding SHIFT
+never blocks the waits. TESTMODE 22 verifies both paths in ZEsarUX: plain SPACE stays (play again),
+SHIFT+SPACE -> title. code 10617B (1671B free); tap 41958B / tzx 42141B. .z80 site snapshots recaptured
+from this build so the in-browser version has it too.

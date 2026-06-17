@@ -481,6 +481,23 @@ Start:
 .h20:
     jr .h20
     ENDIF
+    IF TESTMODE == 22
+    ; hidden SHIFT+SPACE-to-title: at the win screen, holding SHIFT while pressing SPACE
+    ; returns to the title menu; plain SPACE plays again. Player "won" 11-7.
+    call NewMatch
+    ld a,11
+    ld (PMatch),a
+    ld a,7
+    ld (OMatch),a
+    call ShowWinYou
+    call WaitWinner
+    ld a,0xFE
+    in a,(0xFE)
+    bit 0,a
+    jp z,NewGameFromTitle        ; SHIFT held -> title (the feature under test)
+.h22:
+    jr .h22                      ; plain SPACE -> stay here (proves no false trigger)
+    ENDIF
     IF TESTMODE == 8
     ; full table (7 cards) + a played card capturing one -> inspect ShowCapture layout
     ld hl,Table
@@ -595,9 +612,7 @@ Start:
     ld (Seed+1),a
     ld b,6
     call Delay                   ; hold the loading screen >= ~3s (min display)
-    call ShowTitle
-    call SelectDifficulty
-    jp RunMatch
+    jp NewGameFromTitle          ; title -> difficulty -> match (shared with the hidden SHIFT+SPACE return)
     ENDIF
 
 ; =================== match / round ===================
@@ -635,11 +650,27 @@ RunMatch:
     jr nc,.pwon
     call ShowWinOpp
     call WaitSpace
+    ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
+    in a,(0xFE)                  ; read the CAPS-SHIFT half-row (0xFEFE)
+    bit 0,a                      ; CAPS SHIFT: 0 = pressed
+    jp z,NewGameFromTitle
     jr RunMatch
 .pwon:
     call ShowWinYou
     call WaitWinner              ; tricolore border shimmer until SPACE
+    ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
+    in a,(0xFE)
+    bit 0,a                      ; CAPS SHIFT: 0 = pressed
+    jp z,NewGameFromTitle
     jr RunMatch
+
+NewGameFromTitle:                ; title screen -> difficulty/rules -> new match (also the boot entry)
+    xor a
+    out (254),a                  ; black border behind the title
+    ld (BorderC),a
+    call ShowTitle
+    call SelectDifficulty
+    jp RunMatch
 
 NewMatch:
     ld a,5
