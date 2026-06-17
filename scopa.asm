@@ -561,6 +561,26 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 31
+    ; band DeltaBlit (zip path): full-paint a board, change a TABLE card (band rows 8..15 only),
+    ; re-render with the band delta. screen must == shadow EVERYWHERE (band updated, rest intact).
+    call NewMatch
+    call NewRound
+    call PaintAll                ; full paint -> screen == shadow
+    ld a,(Table)
+    inc a
+    ld (Table),a                 ; mutate a table card -> only the band changes
+    call RenderShadow
+    xor a
+    ld (ScrOfs),a
+    ld a,8
+    ld (DBstart),a               ; band rows 8..15
+    ld a,16
+    ld (DBend),a
+    call DeltaBlit
+.h31:
+    jr .h31
+    ENDIF
     IF TESTMODE == 30
     ; slide ease-out timing: time one SlideIn via FRAMES. Base = ~9 HALTs (1 initial + 8 steps);
     ; SlEaseTab [0,0,0,0,0,1,1,2] adds 4 -> expect ~13 frames. Driver reads Options as the count.
@@ -2078,7 +2098,11 @@ ZipCompact:
     xor a
     ld (HideTable),a
     call DrawZipCards            ; draw the survivors at ZipCur[] onto the shadow
-    call Blit                    ; HALT + copy to screen
+    ld a,8                       ; only the table band changes -> delta-blit rows 8..15
+    ld (DBstart),a               ; (tear-free re-pack: small band copy stays ahead of the beam)
+    ld a,16
+    ld (DBend),a
+    call DeltaBlit
     ; advance every survivor one notch toward its target; note if any still moving
     xor a
     ld (Tmp0),a                  ; "moved" flag
@@ -3828,6 +3852,10 @@ StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
 ; PaintAll = build the frame in the shadow buffer, then blit it to the screen.
 PaintAll:
     call RenderShadow
+    xor a
+    ld (DBstart),a               ; delta over the full screen
+    ld a,24
+    ld (DBend),a
     call DeltaBlit               ; copy only the changed cells -> tear-free board redraws
     xor a
     ld (ScrOfs),a
@@ -3960,15 +3988,47 @@ Blit:
 ; Dirty map parked in the unused shadow tail (0x7B00+; RenderShadow only uses 0x6000-0x7AFF).
 DirtyArr equ 0x7B00              ; 768 bytes, 1 per char cell, raster order (row*32 + col)
 DBattr   equ 0x7E00              ; 2-byte scratch: Pass-2 screen attribute cursor
+DBstart  equ 0x7E02              ; band: first char-row to process (PaintAll 0, zip 8)
+DBend    equ 0x7E03              ; band: one past the last char-row (PaintAll 24, zip 16)
+DBoff    equ 0x7E04              ; computed = DBstart*32 (dirty/attr index offset)
+DBcount  equ 0x7E06              ; computed = (DBend-DBstart)*32
 DeltaBlit:
-    ld hl,DirtyArr               ; clear the dirty map
-    ld de,DirtyArr+1
-    ld bc,767
+    ld a,(DBstart)               ; DBoff = DBstart*32
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld (DBoff),hl
+    ld a,(DBend)                 ; DBcount = (DBend-DBstart)*32
+    ld hl,DBstart
+    sub (hl)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld (DBcount),hl
+    ld hl,DirtyArr               ; clear only the band's dirty map
+    ld de,(DBoff)
+    add hl,de
+    ld d,h
+    ld e,l
+    inc de
+    ld bc,(DBcount)
+    dec bc
     ld (hl),0
     ldir
     ; ---- Pass 1a: bitmap diff (8 lines per cell) ----
     ld ix,DirtyArr
-    ld c,0                       ; C = char-row 0..23
+    ld de,(DBoff)
+    add ix,de                    ; IX = &DirtyArr[band start]
+    ld a,(DBstart)
+    ld c,a                       ; C = char-row (band)
 .brow:
     ld a,c
     and 0x18
@@ -4036,13 +4096,24 @@ DeltaBlit:
     djnz .bcol
     inc c
     ld a,c
-    cp 24
-    jr nz,.brow
-    ; ---- Pass 1b: attr diff (linear; same raster index as DirtyArr) ----
+    ld hl,DBend
+    cp (hl)
+    jr c,.brow                   ; c < DBend -> next row
+    ; ---- Pass 1b: attr diff (linear over the band) ----
+    ld de,(DBoff)
     ld hl,0x5800
-    ld de,0x7800
+    add hl,de                    ; HL = screen attr band start
+    ld d,h
+    ld e,l
+    ld a,d
+    add a,0x20
+    ld d,a                       ; DE = shadow attr band start
     ld ix,DirtyArr
-    ld bc,768
+    push de
+    ld de,(DBoff)
+    add ix,de
+    pop de
+    ld bc,(DBcount)
 .acmp:
     ld a,(de)
     cp (hl)
@@ -4060,7 +4131,10 @@ DeltaBlit:
     halt
     di                           ; HALT synced us; keep the small copy un-interrupted
     ld ix,DirtyArr
-    ld c,0
+    ld de,(DBoff)
+    add ix,de                    ; IX = &DirtyArr[band start]
+    ld a,(DBstart)
+    ld c,a
 .crow2:
     ld a,c                       ; HL = screen bitmap (row C, col 0)
     and 0x18
@@ -4147,8 +4221,9 @@ DeltaBlit:
     djnz .ccol2
     inc c
     ld a,c
-    cp 24
-    jr nz,.crow2
+    ld hl,DBend
+    cp (hl)
+    jr c,.crow2
     ei
     ret
 
