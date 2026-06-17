@@ -738,3 +738,36 @@ TESTMODE 25 = CPU-hand-position regression (deal a round, punch a gap at slot 1 
 ZEsarUX: the gapped fan renders with the hole in the right place, the slide start matches, and the
 normal game + self-play demo are both clean. code CodeEnd=0xAAD7 (~1321B free); tap 42308B / tzx 42491B;
 both title .z80 snapshots recaptured and the site redeployed (live downloads byte-match).
+
+## Tear-free card slides at the top of the screen (2026-06-17)
+Tony (CRT): card animations sometimes showed the Spectrum "horizontal blinds" tear. Cycle-counting the
+two slide routines: each slide frame does EraseCardRegion + BlitCard ~= 33,000 T (~47% of a 69,888 T
+frame). After the frame interrupt the raster reaches the TOP of the display in only ~14,336 T (top
+border), so for the CPU's hand (rows 0-7, top of screen) the erase+draw couldn't finish before the beam
+arrived -> tear. The player's hand / table (rows 8-23) were already tear-free (beam gets there later),
+which is why it was only "sometimes" -- the CPU's plays. (Headless can't see tearing, and ZEsarUX ZRCP
+breakpoints don't halt under --vo null -- the "break" action wants a menu the headless build can't open
+-- so the T-state figure is a hand cycle-count, not an auto-measure.)
+
+Fix: rewrote the inner copy loops of BOTH BlitCard and EraseCardRegion. Each char-row's 8 pixel lines are
+now unrolled with LDI (no inner counter, no per-line boundary test or bc-save); the char-row count lives
+in a memory byte (BlitCrow) because LDI clobbers BC. ~40% faster -> a slide frame drops to ~20,000 T: the
+erase now finishes before the beam starts and the draw (faster per char-row than the raster) stays ahead
+row-by-row -> tear-free even at the top. The per-char-row bitmap+colour interleave (the earlier colour-tear
+fix) is preserved. GOTCHA: the DUP-8 unroll makes the loop body >127 bytes, so the loop-back is jp, not jr.
+VERIFIED: BlitCard render pixel-identical to the prior build (TESTMODE 20 gallery, PIL diff empty);
+EraseCardRegion restores the background byte-exact (new TESTMODE 27 compares screen vs shadow over the whole
+6x8 card = 432/432 bytes); self-play board clean during slides. Tear-free-ness itself = Tony's CRT. code +278B.
+
+## Opening-deal leader: random first match, then alternate (2026-06-17)
+Tony noticed the demo's "human" (bottom) side usually wins, and asked if that applies to the real game.
+Both demo sides are Hard (Difficulty is one global) and DemoPlayerTurn feeds the AI's chosen capture through
+the same path as OppTurn -- a fair mirror. The lean was structural: NewMatch always set Leader=0, so the
+player led the OPENING deal of every match (real game AND demo). Host-sim (tools/ai_tune.py, 20k Hard-vs-Hard
+matches): the side that leads the opening deal wins ~52.5% with asso piglia tutto on, ~50.9% (nil) with it
+off. Small but real, and the human always had it. Fix (Tony's spec): a session-persistent OpenLeader byte,
+randomised once at boot (ld a,r / xor (23672) / and 1); NewMatch copies it to Leader then flips it -> match 1
+opens with a random leader and successive matches alternate. Per-deal alternation within a match is unchanged.
+(.sna/.z80 freeze the boot RNG, so the web build's first opening leader is fixed-arbitrary then alternates;
+real tape gets entropy.) TESTMODE 28 logs Leader over 6 NewMatch calls -> [0,1,0,1,0,1]. code CodeEnd 0xAC00
+(1024 B free); tap 42586B / tzx 42769B. Both fixes rebuilt tap/tzx/sna + recaptured both title .z80s + site redeployed.
