@@ -818,3 +818,17 @@ beam reaches the bottom of the table -> tear-free re-pack. Bonus: the band diff+
 than the old full Blit (145k), so the re-pack is also snappier. VERIFIED: full-screen invariant still
 byte-exact (TESTMODE 29); band path yields screen==shadow everywhere after a table change (TESTMODE 31);
 demo re-packs 7- and 9-card tables cleanly. code 638 B free; tap 42907B / tzx 43090B.
+
+## Crowded-table captures shown in place (2026-06-17)
+Tony: on a full table the slide lands the played card on top of the existing cards. Extend the
+multi-capture "card stays in your hand, flashing" idea to ALL captures once the table is crowded, for
+both sides. When it's a CAPTURE and TableN >= 6 (where the slide starts clamping onto another card):
+your turn keeps the card FLASHING IN YOUR HAND (HighlightCursor) while the cards it takes flash, brief
+pause, sweep to pile -- no slide. The opponent, instead of sliding its back down, turns the card FACE-UP
+IN PLACE at its hand slot (BlitCard + FlashCardRegion) and flashes there so you see what it played, then
+sweeps to the CPU pile. Drops still slide; below the threshold captures slide as before. New flag
+RevealInPlace makes ResolvePlay skip its on-table ShowCapture (the caller already showed it); shared
+helpers FlashCaptured / FlashCardRegion. VERIFIED: forced full-table captures both resolve correctly --
+opp (TESTMODE 32) OPileN 2 / TableN 5 face-up at the slot; player (TESTMODE 33, SPACE-driven) PPileN 2 /
+TableN 5 flashing in hand; non-crowded play still slides. Threshold (cp 6) is one tunable byte. code 382 B
+free; tap 42935B / tzx 43118B.
