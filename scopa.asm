@@ -5677,7 +5677,7 @@ SlideIn:
     jr .l
 .done:
     ret
-SlEaseTab: defb 0,0,0,0,0,1,1,2  ; extra hold-frames per step 0..7 (fast whoosh -> gentle settle)
+SlEaseTab: defb 0,0,0,0,0,1,2,4  ; extra hold-frames per step 0..7 (fast whoosh -> clear settle)
 
 ; EraseCardRegion: D=col, E=char-row -> restore the 6x8-cell card footprint at that
 ; cell from the shadow buffer (0x6000) onto the live screen (0x4000). Lifts the sliding
