@@ -68,6 +68,7 @@ SlHandCol: defs 1                  ; slide: source column
 SlDestCol: defs 1                  ; slide: destination column (table slot)
 SlPrevCol: defs 1                  ; slide: card's previous drawn column (to erase)
 SlPrevRow: defs 1                  ; slide: card's previous drawn char-row (to erase)
+SlStep:    defs 1                  ; slide: step counter (0..7) -> indexes the ease-out hold table
 ZipCur:    defs 16                 ; compaction zip: each surviving card's current column
 ZipStep:   defs 1                  ; compaction zip: post-capture table column step
 ZipFrames: defs 1                  ; compaction zip: frame counter (safety cap vs hang)
@@ -559,6 +560,30 @@ Start:
     call OppTurn
 .h25:
     jr .h25
+    ENDIF
+    IF TESTMODE == 30
+    ; slide ease-out timing: time one SlideIn via FRAMES. Base = ~9 HALTs (1 initial + 8 steps);
+    ; SlEaseTab [0,0,0,0,0,1,1,2] adds 4 -> expect ~13 frames. Driver reads Options as the count.
+    call NewMatch
+    call NewRound
+    call PaintAll
+    ld a,6
+    ld (SlHandCol),a
+    ld a,13
+    ld (SlDestCol),a
+    ld a,16
+    ld (SlRow),a
+    ld a,0xFF
+    ld (SlRowStep),a             ; player slide: rows 16 -> 8
+    ld a,5
+    ld (Played),a
+    ld hl,0
+    ld (23672),hl
+    call SlideIn
+    ld hl,(23672)
+    ld (Options),hl
+.h30:
+    jr .h30
     ENDIF
     IF TESTMODE == 29
     ; DeltaBlit invariant: render board A, change it, render board B via the delta path. After
@@ -4204,6 +4229,8 @@ SlideIn:
     ld (SlPrevCol),a
     ld a,(SlRow)
     ld (SlPrevRow),a
+    xor a
+    ld (SlStep),a                ; ease-out: start the step counter
 .l:
     ld a,(SlRow)
     cp 8
@@ -4233,9 +4260,24 @@ SlideIn:
     ld (SlPrevCol),a
     ld a,(SlRow)
     ld (SlPrevRow),a
+    ld a,(SlStep)                ; ease-out: hold the later steps extra frames (decelerate)
+    ld hl,SlEaseTab
+    call addHLA
+    ld b,(hl)
+    ld a,b
+    or a
+    jr z,.noease
+.ease:
+    halt                         ; card stays put -> a little slower each step near the slot
+    call DemoCheckSpace
+    djnz .ease
+.noease:
+    ld hl,SlStep
+    inc (hl)
     jr .l
 .done:
     ret
+SlEaseTab: defb 0,0,0,0,0,1,1,2  ; extra hold-frames per step 0..7 (fast whoosh -> gentle settle)
 
 ; EraseCardRegion: D=col, E=char-row -> restore the 6x8-cell card footprint at that
 ; cell from the shadow buffer (0x6000) onto the live screen (0x4000). Lifts the sliding
