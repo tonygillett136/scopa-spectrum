@@ -560,6 +560,25 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 29
+    ; DeltaBlit invariant: render board A, change it, render board B via the delta path. After
+    ; PaintAll the live screen (0x4000/0x5800) must equal the shadow (0x6000/0x7800) EVERYWHERE
+    ; -> the driver compares the two regions byte-for-byte (any mismatch = a missed dirty cell).
+    call NewMatch
+    call NewRound
+    call PaintAll                ; board A
+    ld a,(TableN)
+    or a
+    jr z,.t29
+    dec a
+    ld (TableN),a                ; drop a table card -> board B (several cells change + relayout)
+.t29:
+    ld a,(Player)
+    ld (Opp),a                   ; also mutate a hand card so a hand cell changes too
+    call PaintAll                ; delta A->B
+.h29:
+    jr .h29
+    ENDIF
     IF TESTMODE == 28
     ; opening-leader alternation: call NewMatch 6x, log Leader each time into Options[].
     ; Expect X,!X,X,!X,X,!X (X = the boot random opening leader).
@@ -3784,7 +3803,7 @@ StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
 ; PaintAll = build the frame in the shadow buffer, then blit it to the screen.
 PaintAll:
     call RenderShadow
-    call Blit
+    call DeltaBlit               ; copy only the changed cells -> tear-free board redraws
     xor a
     ld (ScrOfs),a
     ret
@@ -3906,6 +3925,206 @@ Blit:
     ld de,0x4000
     ld bc,6912
     ldir
+    ret
+
+; DeltaBlit: copy ONLY the character cells that changed from the shadow buffer (0x6000) to the
+; screen (0x4000), instead of the wholesale 6912-byte Blit (which is 2+ frames -> tears as the
+; raster crosses it). Pass 1 diffs shadow vs screen (reads only -> invisible, runs before HALT);
+; Pass 2, after HALT, copies just the dirty cells in raster order (bitmap+attr together per cell)
+; -> small enough to stay ahead of the descending beam -> tear-free even at the top of the screen.
+; Dirty map parked in the unused shadow tail (0x7B00+; RenderShadow only uses 0x6000-0x7AFF).
+DirtyArr equ 0x7B00              ; 768 bytes, 1 per char cell, raster order (row*32 + col)
+DBattr   equ 0x7E00              ; 2-byte scratch: Pass-2 screen attribute cursor
+DeltaBlit:
+    ld hl,DirtyArr               ; clear the dirty map
+    ld de,DirtyArr+1
+    ld bc,767
+    ld (hl),0
+    ldir
+    ; ---- Pass 1a: bitmap diff (8 lines per cell) ----
+    ld ix,DirtyArr
+    ld c,0                       ; C = char-row 0..23
+.brow:
+    ld a,c
+    and 0x18
+    or 0x40
+    ld h,a
+    ld a,c
+    and 7
+    rrca
+    rrca
+    rrca
+    ld l,a                       ; HL = screen bitmap (row C, col 0) line 0
+    ld b,32
+.bcol:
+    push hl                      ; cell line-0 screen addr
+    ld a,h
+    add a,0x20
+    ld d,a
+    ld e,l                       ; DE = shadow line 0 (screen + 0x2000)
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    inc h
+    inc d
+    ld a,(de)
+    cp (hl)
+    jr nz,.bdirty
+    pop hl                       ; all 8 lines equal -> not dirty (yet)
+    jr .bnext
+.bdirty:
+    pop hl
+    ld (ix+0),1
+.bnext:
+    inc ix
+    inc l                        ; next col (lbase+col stays < 256 within a row)
+    djnz .bcol
+    inc c
+    ld a,c
+    cp 24
+    jr nz,.brow
+    ; ---- Pass 1b: attr diff (linear; same raster index as DirtyArr) ----
+    ld hl,0x5800
+    ld de,0x7800
+    ld ix,DirtyArr
+    ld bc,768
+.acmp:
+    ld a,(de)
+    cp (hl)
+    jr z,.aok
+    ld (ix+0),1
+.aok:
+    inc hl
+    inc de
+    inc ix
+    dec bc
+    ld a,b
+    or c
+    jr nz,.acmp
+    ; ---- HALT, then Pass 2: copy dirty cells in raster order ----
+    halt
+    di                           ; HALT synced us; keep the small copy un-interrupted
+    ld ix,DirtyArr
+    ld c,0
+.crow2:
+    ld a,c                       ; HL = screen bitmap (row C, col 0)
+    and 0x18
+    or 0x40
+    ld h,a
+    ld a,c
+    and 7
+    rrca
+    rrca
+    rrca
+    ld l,a
+    ld a,c                       ; DBattr = 0x5800 + C*32 (screen attr cursor)
+    ld e,a
+    ld d,0
+    ex de,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; C*32
+    ld a,h
+    add a,0x58
+    ld h,a
+    ld (DBattr),hl
+    ex de,hl                     ; HL = bitmap addr again, DE = old (discarded)
+    ld b,32
+.ccol2:
+    ld a,(ix+0)
+    or a
+    jr z,.cskip
+    push hl                      ; bitmap: 8 lines shadow -> screen
+    ld d,h
+    ld e,l
+    ld a,h
+    add a,0x20
+    ld h,a                       ; HL = shadow src, DE = screen dst
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    inc h
+    inc d
+    ld a,(hl)
+    ld (de),a
+    pop hl                       ; screen cell line0
+    push hl
+    ld hl,(DBattr)               ; attr: shadow -> screen (same cell)
+    ld d,h
+    ld e,l
+    ld a,h
+    add a,0x20
+    ld h,a
+    ld a,(hl)
+    ld (de),a
+    pop hl
+.cskip:
+    ld de,(DBattr)
+    inc de
+    ld (DBattr),de
+    inc ix
+    inc l
+    djnz .ccol2
+    inc c
+    ld a,c
+    cp 24
+    jr nz,.crow2
+    ei
     ret
 
 ; HandCol: A=hand slot (0..2) -> A = column (6 + 7*slot)
