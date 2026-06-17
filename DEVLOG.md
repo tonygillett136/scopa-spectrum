@@ -808,3 +808,13 @@ eases. Curve is one defb -> trivially tunable. VERIFIED: timed one SlideIn via F
 13 with the table zeroed, 17 with the curve -> ease adds exactly sum(SlEaseTab)=4; slides still land
 clean (the ease only adds HALTs at the drawn position, final position unchanged). Feel = Tony's CRT.
 code 733 B free; tap 42871B / tzx 43054B.
+
+## Tear-free table re-pack: band-limited delta blit (2026-06-17)
+Tony (CRT) confirmed the blinds still showed when the table cards re-settle after a capture -- the
+ZipCompact re-pack still used the full-screen Blit. DeltaBlit now takes a char-row band [DBstart,DBend):
+PaintAll uses 0..24 (full, unchanged), the zip uses 8..16 (the table band only). Restricting the copy
+to the band is the slack needed -- the band copy starts at the top of the frame and finishes before the
+beam reaches the bottom of the table -> tear-free re-pack. Bonus: the band diff+copy (~72k T) is less
+than the old full Blit (145k), so the re-pack is also snappier. VERIFIED: full-screen invariant still
+byte-exact (TESTMODE 29); band path yields screen==shadow everywhere after a table change (TESTMODE 31);
+demo re-packs 7- and 9-card tables cleanly. code 638 B free; tap 42907B / tzx 43090B.
