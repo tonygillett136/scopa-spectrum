@@ -612,3 +612,15 @@ COOP/COEP still required (SharedArrayBuffer). The .tzx/.tap downloads remain for
 a snapshot freezes the boot RNG seed -> the first deal repeats per page-load (minor, web-demo only).
 HEADLESS-VERIFY LIMIT: after the play-button click JSSpeccy's WebGL canvas reads back transparent in
 headless Chromium -> can't self-verify post-click; relying on the in-RAM-title guarantee + Tony's test.
+
+## In-browser keyboard fixed -> emulator fully working (2026-06-17, Tony-confirmed)
+Two layers: (1) JSSpeccy listens for keys on its own injected <div tabindex=0>, not the document
+-> the page re-focuses it on click (host mouseup/touchend -> querySelector('[tabindex]').focus();
+verified document.activeElement lands on it, and keydowns are defaultPrevented = handled). (2) The
+.z80 snapshots had been captured MID-TITLE-MUSIC (a tight interrupts-off loop that never acts on the
+matrix) -> recaptured both at the post-music WaitSpace key-poll loop (PC at ROM ISR 0x38 = interrupts
+on). Verified end-to-end in ZEsarUX from the captured state: SPACE->difficulty->'3' deals a hand
+(TableN 0->4). Diagnosed despite JSSpeccy's WebGL canvas being unscreenshottable in headless Chromium
+by checking each layer independently (DOM focus + keydown defaultPrevented; emulated state via ZEsarUX
+read_mem). Trade-off: no title music in the browser build (plays before the capture point; intact on
+the real-hardware tape/sna). Full reusable write-up in the JSSpeccy-embed reference memory. SITE DONE.
