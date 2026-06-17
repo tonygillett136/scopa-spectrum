@@ -26,6 +26,7 @@ def header(typ,name,length,p1,p2):
 loadscr=open("loading.scr","rb").read()    # 0x4000 (shown during load)
 code=open("scopa_code.bin","rb").read()    # 0x8000
 title=open("title.rle","rb").read()        # 0x6000 (SCOMPACT-packed; expanded to 0x4000 at boot)
+title2=open("title2.rle","rb").read()      # 0x6000+len(title) (second rotating title screen)
 deck=open("deck.bin","rb").read()          # 0xC000
 
 # ---- tiny ML loader (POKEd to the printer buffer @23296) ----
@@ -38,6 +39,7 @@ def ldbytes(dest, length):
 LOADER = ([0xF3]                                   # di
           + ldbytes(0x8000, len(code))
           + ldbytes(0x6000, len(title))
+          + ldbytes(0x6000+len(title), len(title2))   # second title screen, right after the first
           + ldbytes(0xC000, len(deck))
           + [0xC3,0x00,0x80])                      # jp 0x8000
 LADDR = 23296
@@ -61,7 +63,8 @@ tap  = header(0,"scopa",len(prog),10,len(prog))+block(0xFF,prog)
 tap += header(3,"scopaload",len(loadscr),0x4000,0x8000)+block(0xFF,loadscr)
 tap += block(0xFF,code)     # headerless -> loaded by the ML loader
 tap += block(0xFF,title)
+tap += block(0xFF,title2)
 tap += block(0xFF,deck)
 open("scopa.tap","wb").write(tap)
 print(f"scopa.tap = {len(tap)} bytes | BASIC {len(prog)}B (loader {len(LOADER)}B@{LADDR}) + "
-      f"SCREEN${len(loadscr)}B@0x4000 + silent CODE {len(code)}B@0x8000 + TITLE.rle {len(title)}B@0x6000 + DECK {len(deck)}B@0xC000")
+      f"SCREEN${len(loadscr)}B@0x4000 + silent CODE {len(code)}B@0x8000 + TITLE {len(title)}B + TITLE2 {len(title2)}B@0x6000 + DECK {len(deck)}B@0xC000")

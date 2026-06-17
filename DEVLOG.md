@@ -583,3 +583,19 @@ on all responses, .wasm = application/wasm, crossOriginIsolated=true. CAVEAT: JS
 WebGL canvas that headless Chromium can't screenshot (reads back all-black) -> could NOT visually verify
 the in-browser game headlessly; needs a real-browser play-test (Tony). Custom domain
 scopa-spectrum.gillett-projects.com NOT yet set (wrangler has no pages-domain command -> dashboard or API).
+
+## Two rotating title screens (2026-06-17)
+Tony found the 3-card-fan title weak; loved the loading screen. Built five new title concepts
+(title_prototypes/), he picked ACE OF SWORDS, then asked for a 2-screen random rotation (Ace of
+Swords + Ace of Coins eagle). make_screens.py now renders TWO full-bleed card-hero titles (Bodoni-
+yellow SCOPA + tricolore + the full Angelo dedication + SPACE/H line) through img_to_scr: title_sword()
+(SCOPA top, gold crowned hilt hero, dedication bottom) -> title.rle 4061B; title_eagle() (full wings,
+SCOPA inside the coin the eagle frames, dedication bottom) -> title2.rle 3949B. Both parked at 0x6000
+(TitleRle 0x6000, Title2Rle 0x6FDD, ends 0x7F4A < 0x8000 -- the region doubles as the gameplay shadow
+buffer so it's free at the title; combined 8010B of the 8192B budget). scopa.asm: new CurTitle word +
+PickTitle (entropy = Seed^Seed+1^R, one bit) -> ShowTitle picks one at boot, stores CurTitle, the H/help
+path redraws CurTitle (same screen). build_tap.py loads BOTH title.rle and title2.rle (the .sna had both
+via full-RAM save, but the tape needed the extra ldbytes/block). VERIFIED in ZEsarUX: both titles render
+pixel-clean (forced each via and-0/and-1), H->how-to->SPACE returns to the same title. code 10590B
+(1698B free). tap 41930B / tzx 42113B (8 blocks). PENDING Tony CRT. (Note: in-browser JSSpeccy still
+shows grey -- separate issue, .z80 route next.)

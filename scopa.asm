@@ -79,6 +79,7 @@ AceRule:   defs 1                  ; optional "asso piglia tutto": ace takes who
 AceSweepOpt: defs 1                ; 1 = the current capture is an ace-sweep -> Scopa d'Assi: no scopa
 ChoiceMade: defs 1                 ; 1 = player picked the capture before the slide (card stays in hand)
 ChoiceVal:  defs 1                 ; the pre-chosen capture option index
+CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen title.rle (2-screen rotation)
 
     ORG 0x8000
 Start:
@@ -2857,9 +2858,26 @@ PrintNum:
     ret
 
 ; =================== screens ===================
+; PickTitle: random rotation between the two title screens. Entropy = the boot Seed
+; (R + FRAMES, set just before ShowTitle) mixed with the live refresh register. HL = chosen.
+PickTitle:
+    ld a,(Seed)
+    ld b,a
+    ld a,(Seed+1)
+    xor b
+    ld b,a
+    ld a,r
+    xor b
+    and 1
+    ld hl,TitleRle
+    ret z
+    ld hl,Title2Rle
+    ret
+
 ShowTitle:
-    ld hl,TitleRle               ; SCOMPACT-packed title, parked in the shadow region
-    call DecompressScr           ; expand it onto the screen (0x4000)
+    call PickTitle               ; pick a title at random (2-screen rotation)
+    ld (CurTitle),hl
+    call DecompressScr           ; expand the chosen SCOMPACT-packed title onto the screen (0x4000)
     call PlayTitleMusic          ; A: 0=finished, 1=SPACE(skip->game), 2=H(help)
     cp 1
     ret z                        ; SPACE during music -> straight to the game
@@ -2874,8 +2892,8 @@ ShowTitle:
     bit 4,a
     jr nz,.wait                  ; H not pressed -> keep waiting
 .help:
-    call ShowHowToPlay           ; H -> rules screen, then redraw the title
-    ld hl,TitleRle
+    call ShowHowToPlay           ; H -> rules screen, then redraw the same title
+    ld hl,(CurTitle)
     call DecompressScr
 .drainh:
     ld a,0xBF
@@ -4452,7 +4470,9 @@ CodeEnd:
     ; This frees the whole 0x9400 region (code can now grow up to the state block @0xB000).
     ORG 0x6000
 TitleRle:
-    INCBIN "title.rle"
+    INCBIN "title.rle"           ; screen 1: Ace of Swords
+Title2Rle:
+    INCBIN "title2.rle"          ; screen 2: Ace of Coins (both fit below 0x8000; ShowTitle picks one)
     ORG 0xC000
     INCBIN "deck.bin"
 

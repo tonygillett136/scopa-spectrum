@@ -232,23 +232,57 @@ def rle_compress(data):
             out.append(i-start); out += data[start:i]
     return bytes(out)
 
-# title: keep the three-card fan
-title_im = screen(("19_Nove_di_coppe.jpg", "30_Dieci_di_spade.jpg", "21_Asso_di_spade.jpg"),
-                  "SPACE = START    H = HOW TO PLAY", WHT)
-for name, im in (("title", title_im), ("loading", horseman_loading())):
+# ---- two rotating title screens (full-bleed card hero + Bodoni SCOPA + dedication) ----
+def _fill(jpg, box, sat=1.28, con=1.12, bri=1.05):
+    im = Image.open(f"{REF}/{jpg}").convert('RGB'); iw, ih = im.size
+    x0, y0, x1, y1 = box
+    c = im.crop((int(iw*x0), int(ih*y0), int(iw*x1), int(ih*y1)))
+    c = ImageEnhance.Color(c).enhance(sat)
+    c = ImageEnhance.Contrast(c).enhance(con)
+    c = ImageEnhance.Brightness(c).enhance(bri)
+    return c.resize((256, 192), Image.LANCZOS).filter(ImageFilter.SHARPEN)
+
+def _bwordmark(img, cy, sz=34, plate=True):           # solid-yellow Bodoni SCOPA + tricolore (loading-screen style)
+    d = ImageDraw.Draw(img); f = bodoni(sz); s = "SCOPA"
+    bb = d.textbbox((0, 0), s, font=f); tw, th = bb[2]-bb[0], bb[3]-bb[1]; cx = 128; pad = 12
+    if plate: d.rectangle([cx-tw//2-pad, cy-6, cx+tw//2+pad, cy+th+13], fill=(0, 0, 0))
+    d.text((cx-tw//2-bb[0], cy-bb[1]), s, font=f, fill=(255, 255, 0))
+    tricolore_rule(d, cx-tw//2, cx+tw//2, cy+th+6, 3)
+
+_DED = ["Based on an original ZX Spectrum", "game by Angelo Colucci", "© Tony Gillett 2026"]
+def _dedication(img, y0=146, keys_y=179):             # grey credits (rows 18-20) + white keys (row 22)
+    d = ImageDraw.Draw(img); cf = font(9, False)
+    for i, l in enumerate(_DED): text_c(d, 128, y0+i*9, l, cf, (190, 190, 190))
+    text_c(d, 128, keys_y, "SPACE = START    H = HOW TO PLAY", font(9, False), (255, 255, 255))
+
+def title_sword():                                    # screen 1: Ace of Swords, SCOPA top, dedication bottom
+    img = _fill("21_Asso_di_spade.jpg", (0.18, 0.12, 0.92, 0.56), sat=1.25, con=1.08)
+    d = ImageDraw.Draw(img); d.rectangle([0, 0, 255, 39], fill=(0, 0, 0))
+    _bwordmark(img, 4, sz=30, plate=False)
+    d.rectangle([0, 144, 255, 191], fill=(0, 0, 0)); _dedication(img)
+    return img
+
+def title_eagle():                                    # screen 2: Ace of Coins, full wings, SCOPA in the coin
+    img = _fill("01_Asso_di_denari.jpg", (0.0, 0.02, 1.0, 0.50), sat=1.2, con=1.05)
+    _bwordmark(img, 88, sz=34, plate=True)
+    d = ImageDraw.Draw(img); d.rectangle([0, 144, 255, 191], fill=(0, 0, 0)); _dedication(img)
+    return img
+
+# two title screens (rotated at random in-game) + the loading screen
+for name, im in (("title", title_sword()), ("title2", title_eagle()), ("loading", horseman_loading())):
     scr = img_to_scr(im)
     if name == "loading":
         scr = despeckle(scr, range(0, 18))              # remove stray bright squares + yellow eye cell
         scr = fix_mane_specks(scr, range(0, 18))        # isolated bright-white specks in the mane -> grey
-    if name == "title":
-        scr = fix_white_bright(scr, range(22, 24))      # PRESS SPACE all bright white
+    if name in ("title", "title2"):
+        scr = fix_white_bright(scr, range(22, 24))      # the SPACE/H key line -> all bright white
     open(f"{OUT}/{name}.scr", "wb").write(scr)
     scr_to_png(scr, f"/tmp/scopa_{name}.png")
     print(f"{name}.scr -> /tmp/scopa_{name}.png")
-    if name == "title":
+    if name in ("title", "title2"):
         comp = rle_compress(scr)                        # SCOMPACT-packed; expands to 0x4000 at boot
-        open(f"{OUT}/title.rle", "wb").write(comp)
-        print(f"title.rle -> {len(comp)} bytes ({100*len(comp)//6912}% of 6912)")
+        open(f"{OUT}/{name}.rle", "wb").write(comp)
+        print(f"{name}.rle -> {len(comp)} bytes ({100*len(comp)//6912}% of 6912)")
 
 # ---- big TrueType event banners (4 char rows tall, gold Arial Black on black) ----
 def make_banner(name, text, fontsize=None, max_w=246, flag=False):
