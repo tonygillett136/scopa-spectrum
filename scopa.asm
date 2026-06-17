@@ -3768,8 +3768,15 @@ SlideIn:
 ; EraseCardRegion: D=col, E=char-row -> restore the 6x8-cell card footprint at that
 ; cell from the shadow buffer (0x6000) onto the live screen (0x4000). Lifts the sliding
 ; card off its previous cell without re-blitting the whole screen.
+; INTERLEAVED per char-row: each char-row's 8 pixel lines AND its colour row are restored
+; together, top-to-bottom, so the colour stays locked to the pixels ahead of the raster
+; (the old version restored ALL pixels then ALL colour -> the colour lagged -> colour tearing).
 EraseCardRegion:
-    push de                      ; keep D=col, E=char-row for the attr pass
+    ld a,8                       ; 8 char-rows, top to bottom
+.crow:
+    push af                      ; remaining char-rows
+    push de                      ; col (D) / char-row (E)
+    ; -- bitmap: this char-row's 8 pixel lines (shadow -> screen) --
     ld a,e
     and 0x18
     or 0x40
@@ -3780,65 +3787,51 @@ EraseCardRegion:
     rrca
     rrca
     or d
-    ld l,a                       ; HL = screen bitmap address of the top-left cell
-    ld c,64                      ; 64 pixel lines
-.brow:
+    ld l,a                       ; HL = screen addr of (col, char-row), pixel line 0
+    ld b,8
+.bln:
     push hl                      ; screen line start
     ld d,h
-    ld e,l                       ; DE = dst (screen)
+    ld e,l                       ; DE = screen dst
     ld a,h
     add a,0x20
-    ld h,a                       ; HL = src (shadow = screen + 0x2000)
+    ld h,a                       ; HL = shadow src (screen + 0x2000)
     push bc
     ld bc,6
-    ldir                         ; copy 6 bytes shadow -> screen
+    ldir
     pop bc
-    pop hl                       ; HL = screen line start
-    inc h                        ; next pixel line down (ZX interleave)
-    ld a,h
-    and 7
-    jr nz,.nx
-    ld a,l
-    add a,0x20
-    ld l,a
-    jr c,.nx
-    ld a,h
-    sub 8
-    ld h,a
-.nx:
-    dec c
-    jr nz,.brow
-    pop de                       ; attributes: 8 rows of 6 cells
+    pop hl                       ; screen line start
+    inc h                        ; next pixel line within this char-row
+    djnz .bln
+    ; -- colour: this char-row's 6 cells (shadow -> screen) --
+    pop de                       ; col (D) / char-row (E)
+    push de                      ; keep for the next char-row
     ld h,0
     ld l,e
     add hl,hl
     add hl,hl
     add hl,hl
     add hl,hl
-    add hl,hl                    ; HL = char-row * 32
+    add hl,hl                    ; char-row * 32
     ld a,l
     add a,d
     ld l,a
     ld a,h
     adc a,0x58
     ld h,a                       ; HL = 0x5800 + char-row*32 + col (screen attr)
-    ld c,8
-.arow:
-    push hl
     ld d,h
-    ld e,l
+    ld e,l                       ; DE = screen attr dst
     ld a,h
     add a,0x20
-    ld h,a                       ; HL = shadow attr (src = screen attr + 0x2000)
-    push bc
+    ld h,a                       ; HL = shadow attr src
     ld bc,6
     ldir
-    pop bc
-    pop hl
-    ld de,32
-    add hl,de
-    dec c
-    jr nz,.arow
+    ; -- next char-row --
+    pop de                       ; col (D) / char-row (E)
+    inc e
+    pop af
+    dec a
+    jr nz,.crow
     ret
 
 ; HandAttrHL: A=hand slot -> HL = attr address of that card (row 16)
@@ -4222,7 +4215,12 @@ StrYOU:      defb "YOU",0
 StrScopaBang: defb "SCOPA!",0
 
 ; BlitCard: A=cardid, D=col, E=row
+; INTERLEAVED per char-row: each char-row's 8 pixel lines are followed immediately by that
+; row's colour (6 cells = 0x78), top-to-bottom, so the colour stays locked to the pixels ahead
+; of the raster (no colour tearing during the card slide). The attr address is carried in IX,
+; which is push/pop-preserved because RenderShadow keeps the Table pointer in IX across calls.
 BlitCard:
+    push ix
     push de
     ld hl,CARDS
     or a
@@ -4233,38 +4231,70 @@ BlitCard:
     add hl,de
     djnz .mul
 .noff:
-    pop de
-    push de
+    pop de                       ; D=col, E=char-row
+    ; -- IX = colour (attr) address of the top char-row (+ ScrOfs) --
+    push hl                      ; save card source
+    ld h,0
+    ld l,e
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; char-row * 32
+    ld a,l
+    add a,d
+    ld l,a
+    ld a,h
+    adc a,0x58
+    ld h,a                       ; 0x5800 + char-row*32 + col
+    ld a,(ScrOfs)
+    add a,h
+    ld h,a                       ; + ScrOfs (screen 0x5800 / shadow 0x7800)
     push hl
+    pop ix                       ; IX = attr address
+    pop hl                       ; restore card source
+    ; -- bitmap destination -> DE --
+    push de                      ; save col/char-row
+    push hl                      ; save card source
     ld a,e
     and 0x18
     or 0x40
     push hl
     ld hl,ScrOfs
-    add a,(hl)                   ; screen or shadow buffer
+    add a,(hl)
     pop hl
-    ld b,a
+    ld b,a                       ; dst high byte
     ld a,e
     and 7
     rrca
     rrca
     rrca
     or d
-    ld c,a
-    pop hl
+    ld c,a                       ; dst low byte
+    pop hl                       ; card source
     ld d,b
-    ld e,c
-    ld a,64
+    ld e,c                       ; DE = screen bitmap dst (top-left cell)
+    ld a,64                      ; 64 pixel lines
 .brow:
     push af
     push de
     ld bc,6
-    ldir
+    ldir                         ; one 6-byte pixel line (card src HL -> screen DE)
     pop de
-    inc d
+    inc d                        ; next pixel line
     ld a,d
     and 7
-    jr nz,.nx
+    jr nz,.nx                    ; still within this char-row's 8 lines
+    ; -- char-row done: write its colour now, then step IX a row down --
+    ld (ix+0),0x78
+    ld (ix+1),0x78
+    ld (ix+2),0x78
+    ld (ix+3),0x78
+    ld (ix+4),0x78
+    ld (ix+5),0x78
+    ld bc,32
+    add ix,bc
+    ; -- step the bitmap dst to the next char-row --
     ld a,e
     add a,0x20
     ld e,a
@@ -4276,39 +4306,8 @@ BlitCard:
     pop af
     dec a
     jr nz,.brow
-    pop de
-    ld h,0
-    ld l,e
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld a,l
-    add a,d
-    ld l,a
-    ld a,h
-    adc a,0x58
-    ld h,a
-    push hl
-    ld hl,ScrOfs
-    ld a,(hl)
-    pop hl
-    add a,h
-    ld h,a
-    ld a,8
-.arow:
-    push hl
-    ld b,6
-.acol:
-    ld (hl),0x78
-    inc hl
-    djnz .acol
-    pop hl
-    ld bc,32
-    add hl,bc
-    dec a
-    jr nz,.arow
+    pop de                       ; discard saved col/char-row
+    pop ix
     ret
 
 ; ===================== title-screen music (Funiculi Funicula) =====================

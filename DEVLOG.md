@@ -646,3 +646,18 @@ to NewGame -> SelectDifficulty directly (the skill/rules menu, which draws itsel
 SKILL LEVEL", no title data needed). ShowTitle is called ONCE at boot (0x6000 intact). TESTMODE 22
 updated to trash 0x6000 first (reproduce the real condition) -> verified the menu renders clean.
 code 10617B; tap 41958B/tzx 42141B; .z80s + downloads rebuilt from the fixed build.
+
+## Colour-attribute tearing in the card slide (2026-06-17)
+Tony (CRT): the flicker-free card slide is solid on pixels, but the COLOUR tears -- the attributes
+lag the bitmap. CAUSE: BlitCard and EraseCardRegion each wrote the card footprint in TWO passes --
+all 64 pixel lines (8 char-rows) first, then all 8 colour rows. So a char-row's colour wasn't written
+until after the pixels of the char-rows BELOW it; the raster (top->bottom) could reach a char-row in
+the window where its pixels were new but its colour old -> colour tearing. FIX: INTERLEAVE per char-row
+-- write each char-row's 8 pixel lines immediately followed by that row's 6 colour cells, top to bottom,
+so colour stays locked to the pixels ahead of the beam. EraseCardRegion: recompute-per-char-row loop
+(both passes are shadow->screen ldir). BlitCard: keep the existing 64-line bitmap loop but carry the
+attr address in IX and fill the row's colour at each char-row boundary; IX is push/pop-preserved because
+RenderShadow holds the Table pointer in IX across BlitCard calls. Same total work (just reordered) ->
+no timing-budget hit. VERIFIED in ZEsarUX: static board (TESTMODE 20) pixel-perfect, slide (TESTMODE 9)
+lands clean -- no garbage from the restructured addressing. code 10615B (1675B free); tap 41956B. CRT
+confirm of the tear-free colour = Tony.
