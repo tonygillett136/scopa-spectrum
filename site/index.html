@@ -75,7 +75,7 @@
     <h2 class="section-title">In play</h2>
     <div class="tricolore-rule"></div>
     <div class="shots-grid">
-      <figure><img src="img/title.png" alt="Title screen with a fan of three Neapolitan court cards"><figcaption>Title screen</figcaption></figure>
+      <figure><img src="img/title.png?v=2" alt="Title screen: the Ace of Swords with the SCOPA wordmark and tricolore"><figcaption>Title screen</figcaption></figure>
       <figure><img src="img/gameplay.png" alt="A hand in progress: the cyan felt, the opponent's face-down cards, the table, and your hand"><figcaption>A hand in progress</figcaption></figure>
       <figure><img src="img/results.png" alt="End-of-deal scoring screen showing Carte, Denari, Settebello, Primiera and more"><figcaption>Round scoring</figcaption></figure>
       <figure><img src="img/howto.png" alt="The in-game how-to-play screen"><figcaption>How to play</figcaption></figure>
@@ -126,12 +126,17 @@
       <a class="dl-card" href="scopa.tzx" download>
         <span class="dl-fmt">.TZX</span>
         <span class="dl-name">scopa.tzx</span>
-        <span class="dl-meta">Recommended · with archive metadata · ~38 KB</span>
+        <span class="dl-meta">Recommended · with archive metadata · ~41 KB</span>
       </a>
       <a class="dl-card" href="scopa.tap" download>
         <span class="dl-fmt">.TAP</span>
         <span class="dl-name">scopa.tap</span>
-        <span class="dl-meta">Plain tape image · ~38 KB</span>
+        <span class="dl-meta">Plain tape image · ~41 KB</span>
+      </a>
+      <a class="dl-card" href="scopa.sna" download>
+        <span class="dl-fmt">.SNA</span>
+        <span class="dl-name">scopa.sna</span>
+        <span class="dl-meta">48K snapshot · instant load, no tape · ~48 KB</span>
       </a>
     </div>
     <p class="dl-note">On a real 48K Spectrum: <code>LOAD ""</code> and play the tape. It boots
@@ -174,7 +179,8 @@
 <script src="emu/jsspeccy.js"></script>
 <script>
   window.addEventListener('DOMContentLoaded', function () {
-    JSSpeccy(document.getElementById('jsspeccy'), {
+    var host = document.getElementById('jsspeccy');
+    var emu = JSSpeccy(host, {
       machine: 48,
       zoom: 2,
       sandbox: true,
@@ -183,6 +189,13 @@
       // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
       openUrl: (Math.random() < 0.5 ? 'scopa.z80' : 'scopa2.z80')
     });
+    // Keyboard fix: JSSpeccy listens for keys on its own container element (tabindex), NOT
+    // the document — so after the Play click, focus must land back on it or keypresses are
+    // lost. Re-focus that element on any click/touch anywhere in the emulator.
+    function focusEmu() { var c = host.querySelector('[tabindex]'); if (c) { c.focus(); } }
+    host.addEventListener('mouseup', focusEmu);
+    host.addEventListener('touchend', focusEmu);
+    if (emu && emu.onReady) { emu.onReady(focusEmu); }
   });
 </script>
 </body>
