@@ -562,6 +562,71 @@ Start:
 .h25:
     jr .h25
     ENDIF
+    IF TESTMODE == 37
+    ; BIAS SIM: play 200 Hard-vs-Hard demo-config matches (display/delays gated off via FastSim)
+    ; and tally winners into Options[0]=player, Options[1]=opp. Confirms the demo is fair on the
+    ; REAL Z80 logic (not just the host sim).
+    ld a,2
+    ld (Difficulty),a
+    ld a,1
+    ld (AceRule),a
+    ld (DemoMode),a              ; PlayerTurn -> DemoPlayerTurn (both AI, no input)
+    ld a,1
+    ld (FastSim),a
+    xor a
+    ld (0x7E0B),a                ; player-win count (shadow tail; untouched -- render is gated off)
+    ld (0x7E0C),a                ; opp-win count
+    ld b,200
+.ml37:
+    push bc
+    call FM37
+    or a
+    jr nz,.ow37
+    ld hl,0x7E0B
+    inc (hl)
+    jr .t37
+.ow37:
+    ld hl,0x7E0C
+    inc (hl)
+.t37:
+    pop bc
+    djnz .ml37
+.h37:
+    jr .h37
+FM37:                            ; play one full match -> A = winner (0 = player, 1 = opp)
+    call NewMatch
+.fmr:
+    call NewRound
+    call PlayRound
+    call ScoreRound
+    ld a,(PMatch)
+    cp 11
+    jr nc,.fmend
+    ld a,(OMatch)
+    cp 11
+    jr nc,.fmend
+    ld a,(Leader)
+    xor 1
+    ld (Leader),a
+    jr .fmr
+.fmend:
+    ld a,(PMatch)
+    ld c,a
+    ld a,(OMatch)
+    cp c
+    jr z,.fmtie
+    jr nc,.fmopp                 ; OMatch > PMatch -> opp wins
+    xor a                        ; OMatch < PMatch -> player wins
+    ret
+.fmopp:
+    ld a,1
+    ret
+.fmtie:
+    ld a,(Leader)                ; tie at/over 11 -> another round
+    xor 1
+    ld (Leader),a
+    jr .fmr
+    ENDIF
     IF TESTMODE == 35
     ; re-pack hybrid SMOOTH path: 3-card table, cards 1&2 shifted right by 2 (narrow moving block).
     ; ZipMoveSpan should give W<=18 -> smooth slice; ZipCompact should land them on 1,6,11.
@@ -2359,6 +2424,11 @@ CaptureZipOld:
 ; ZipCompact: slide the (already-compacted) Table cards from their recorded ZipCur columns
 ; to their final compacted columns (1 + newstep*k), a few columns per frame -> a fast zip.
 ZipCompact:
+    IF TESTMODE == 37
+    ld a,(FastSim)
+    or a
+    ret nz                       ; bias sim: skip the re-pack animation (state already compacted)
+    ENDIF
     ld a,(TableN)
     or a
     ret z                        ; table emptied (e.g. a scopa) -> nothing to zip
@@ -2374,8 +2444,8 @@ ZipCompact:
     ld (HideTable),a
     call DrawZipCards
     call Blit
-    ld b,2
-    call Delay
+    halt                         ; just a frame or two so the removal registers, not a long pause
+    halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
     cp 22
@@ -2462,6 +2532,7 @@ ZipCompact:
 
 ZipSliceC0 equ 0x7E08            ; re-pack: leftmost column in motion (slice left edge)
 ZipSliceW  equ 0x7E09            ; re-pack: slice width = 32 - ZipSliceC0
+FastSim    equ 0x7E0A            ; (TESTMODE 37 only) 1 = skip display/delays for the bias match-sim
 
 ; ZipMoveSpan: -> A = width of the moving block (= 32 - leftmost moving column), and stores
 ; that leftmost column in ZipSliceC0. A card is "moving" if its current column (ZipCur[k])
@@ -3333,6 +3404,11 @@ WaitSpace:
     ret
 
 Delay:
+    IF TESTMODE == 37
+    ld a,(FastSim)
+    or a
+    ret nz                       ; bias sim: no waiting
+    ENDIF
     call DemoCheckSpace          ; demo: a SPACE in any pause drops back to the menu (clobbers A only)
 .d1:
     ld de,0
@@ -4297,6 +4373,11 @@ StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
 ; =================== card paint ===================
 ; PaintAll = build the frame in the shadow buffer, then blit it to the screen.
 PaintAll:
+    IF TESTMODE == 37
+    ld a,(FastSim)
+    or a
+    ret nz                       ; bias sim: no rendering
+    ENDIF
     call RenderShadow
     xor a
     ld (DBstart),a               ; delta over the full screen
@@ -4727,6 +4808,11 @@ SlideDelta:
 ; footprint (restored from the shadow) and redraws it at the new cell. That's ~2 cards
 ; of work per frame -- small enough to finish ahead of the raster, so it never tears.
 SlideIn:
+    IF TESTMODE == 37
+    ld a,(FastSim)
+    or a
+    ret nz                       ; bias sim: skip the slide animation
+    ENDIF
     call RenderShadow            ; shadow = the board WITHOUT the moving card
     xor a
     ld (ScrOfs),a                ; erase + BlitCard now target the live screen (0x4000)
