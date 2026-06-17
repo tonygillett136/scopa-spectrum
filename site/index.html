@@ -189,13 +189,34 @@
       // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
       openUrl: (Math.random() < 0.5 ? 'scopa.z80' : 'scopa2.z80')
     });
-    // Keyboard fix: JSSpeccy listens for keys on its own container element (tabindex), NOT
-    // the document — so after the Play click, focus must land back on it or keypresses are
-    // lost. Re-focus that element on any click/touch anywhere in the emulator.
-    function focusEmu() { var c = host.querySelector('[tabindex]'); if (c) { c.focus(); } }
+    // Keyboard: JSSpeccy listens for keys on its own container (tabindex) and maps by
+    // e.keyCode — NOT the document. After the Play click, focus can drift to <body>, so
+    // keypresses are silently lost ("works once, then dead"). Two-part fix:
+    function emuEl() { return host.querySelector('[tabindex]'); }
+    function focusEmu() { var c = emuEl(); if (c) { c.focus(); } }
     host.addEventListener('mouseup', focusEmu);
     host.addEventListener('touchend', focusEmu);
     if (emu && emu.onReady) { emu.onReady(focusEmu); }
+    // (a) Forward every key from the whole window into JSSpeccy's element, regardless of
+    // focus, preserving keyCode (synthetic KeyboardEvents zero it otherwise).
+    function forwardKey(type) {
+      window.addEventListener(type, function (e) {
+        if (e.__toEmu) { return; }                       // our own re-dispatch — let it through
+        var c = emuEl();
+        if (!c || c === e.target || c.contains(e.target)) { return; }  // already going to the emu
+        var ev = new KeyboardEvent(type, { key: e.key, code: e.code, location: e.location,
+          repeat: e.repeat, bubbles: true, cancelable: true });
+        ev.__toEmu = true;
+        try {
+          Object.defineProperty(ev, 'keyCode', { get: function () { return e.keyCode; } });
+          Object.defineProperty(ev, 'which',   { get: function () { return e.which; } });
+        } catch (_) {}
+        c.dispatchEvent(ev);
+        e.preventDefault();
+      }, true);
+    }
+    forwardKey('keydown');
+    forwardKey('keyup');
   });
 </script>
 </body>
