@@ -46,8 +46,8 @@
     <h2 class="section-title">Play it now</h2>
     <div class="tricolore-rule"></div>
     <p class="section-intro">No tape, no emulator to install — the real Spectrum binary runs right here,
-      in a JavaScript Spectrum. Press <strong>▶</strong>, watch it load from the (virtual) tape to the
-      title screen, then click the screen and press <kbd>SPACE</kbd> to start.</p>
+      in a JavaScript Spectrum. Press <strong>▶</strong> and it opens on the title screen; click the
+      screen to give it the keyboard, then press <kbd>SPACE</kbd> to start.</p>
 
     <div class="play-grid">
       <div class="emu-frame">
@@ -179,9 +179,9 @@
       zoom: 2,
       sandbox: true,
       autoStart: false,
-      autoLoadTapes: true,
-      tapeTrapsEnabled: true,
-      openUrl: 'scopa.tzx'
+      // snapshot taken at the title (the tape's silent multi-stage loader doesn't
+      // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
+      openUrl: (Math.random() < 0.5 ? 'scopa.z80' : 'scopa2.z80')
     });
   });
 </script>

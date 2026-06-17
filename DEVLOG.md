@@ -599,3 +599,16 @@ via full-RAM save, but the tape needed the extra ldbytes/block). VERIFIED in ZEs
 pixel-clean (forced each via and-0/and-1), H->how-to->SPACE returns to the same title. code 10590B
 (1698B free). tap 41930B / tzx 42113B (8 blocks). PENDING Tony CRT. (Note: in-browser JSSpeccy still
 shows grey -- separate issue, .z80 route next.)
+
+## In-browser emulator -> .z80 snapshots (2026-06-17)
+JSSpeccy showed a blank/grey screen for BOTH the .sna and the tape (.tzx) in real browsers (Tony
+confirmed). The .sna's screen RAM is blank at load, so JSSpeccy had to RUN our boot code to draw the
+title -- and something in that path doesn't replay (the custom silent multi-stage tape loader likewise
+doesn't trap-load cleanly). FIX: ship ZEsarUX-exported **.z80 snapshots captured AT the title** -- the
+title is already in screen RAM, so JSSpeccy displays it the instant it restores (no reliance on our boot
+code). Two snapshots (scopa.z80 = eagle, scopa2.z80 = sword, forced via PickTitle and-0/and-1) keep the
+title rotation in-browser via `openUrl: Math.random()<0.5 ? 'scopa.z80' : 'scopa2.z80'`. site/_headers
+COOP/COEP still required (SharedArrayBuffer). The .tzx/.tap downloads remain for real hardware. CAVEAT:
+a snapshot freezes the boot RNG seed -> the first deal repeats per page-load (minor, web-demo only).
+HEADLESS-VERIFY LIMIT: after the play-button click JSSpeccy's WebGL canvas reads back transparent in
+headless Chromium -> can't self-verify post-click; relying on the in-RAM-title guarantee + Tony's test.
