@@ -3278,18 +3278,38 @@ ZipCompact:
     halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
-    cp 22
-    jr c,.zsmooth                ; <=21 cols in motion -> slice fits ahead of the beam -> smooth
-    ; crowded: too wide to copy ahead of the beam every frame -> snap to final positions in ONE
-    ; frame (a single brief blink instead of the sustained tearing of a full-band slide).
+    cp 15
+    jr c,.zsmooth                ; narrow block -> the slice stays ahead of the beam (with ULA
+                                 ; contention margin) -> smooth glide. 21 was too loose: contention
+                                 ; made the lower band rows fall behind the beam -> tore.
+    ; wide block: can't slide tear-free in one frame. Snap the cards to their compacted positions
+    ; in state, then REVEAL the table band left-to-right in narrow chunks (each a tear-free
+    ; BlitSlice) -> the survivors re-settle a strip at a time, no full-blit tear.
     call ZipSnap                 ; ZipCur[k] = target column for every survivor
     ld a,1
     ld (HideTable),a
-    call RenderShadow
+    call RenderShadow            ; compacted board -> shadow (HUD/hand rows are outside the band)
     xor a
     ld (HideTable),a
-    call DrawZipCards
-    call Blit
+    call DrawZipCards            ; survivors at their final columns, into the shadow
+    xor a
+    ld (ZipSliceC0),a            ; reveal the band (cols 0..31) in 4-col chunks, left to right
+.snwipe:
+    ld a,(ZipSliceC0)
+    ld c,a
+    ld a,32
+    sub c                        ; columns remaining
+    cp 5
+    jr c,.snwl                   ; <=4 left -> copy the remainder
+    ld a,4
+.snwl:
+    ld (ZipSliceW),a
+    call BlitSlice               ; HALT + copy this band chunk from the shadow -> tear-free
+    ld a,(ZipSliceC0)
+    add a,4
+    ld (ZipSliceC0),a
+    cp 32
+    jr c,.snwipe
     jr .zipdone
 .zsmooth:
     xor a
