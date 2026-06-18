@@ -3221,7 +3221,13 @@ ZipCompact:
     xor a
     ld (HideTable),a
     call DrawZipCards
-    call Blit
+    xor a
+    ld (DBstart),a               ; TEAR-FREE removal: delta-blit only the taken cards' cells
+    ld a,24
+    ld (DBend),a
+    call DeltaBlit               ; (was a full Blit -> the "horizontal blinds" when cards vanished)
+    xor a
+    ld (ScrOfs),a
     halt                         ; just a frame or two so the removal registers, not a long pause
     halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
