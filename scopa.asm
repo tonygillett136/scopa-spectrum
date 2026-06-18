@@ -1102,6 +1102,9 @@ FM37:                            ; play one full match -> A = winner (0 = player
     ld de,0x7E26
     ld b,4
     call .cmp44
+    call RenderShadow            ; render the correct board to shadow; screen (direct-drawn)
+    xor a                        ; should already equal it -> positions match RenderShadow exactly
+    ld (ScrOfs),a
 .h44:
     jr .h44
 .cmp44:
@@ -5236,10 +5239,14 @@ PaintAll:
     ld (ScrOfs),a
     ret
 
-; ===== deal cascade: reveal freshly-dealt cards ONE AT A TIME. Each reveal repaints via the
-; delta path, so every step changes just a single card -> stays ahead of the beam (tear-free),
-; where a whole-board paint cannot. The cards are dealt into state as usual, then hidden and
-; brought back in sequence. =====
+; ===== deal cascade: reveal freshly-dealt cards ONE AT A TIME, each drawn DIRECTLY with the
+; (R30-tear-free) BlitCard after a HALT -- a single card draw stays ahead of the beam even at the
+; top of the screen. NO RenderShadow/DeltaBlit per card: that was both slower (it redrew the whole
+; board each time) and over the top-border budget (the per-cell delta is slower than BlitCard's
+; unrolled LDI -> the CPU's cards tore). The cards live in the game state the whole time; we just
+; draw them onto the already-painted empty board, in deal order. =====
+DEALHOLD = 1                     ; extra frames each dealt card is held (deal rhythm; raise to slow)
+
 BlankFF:                         ; HL=ptr, B=count -> fill 0xFF
     ld (hl),0xFF
     inc hl
@@ -5252,37 +5259,51 @@ DealPace:                        ; B = frames to hold (polls SPACE so the demo c
     djnz DealPace
     ret
 
-RevealOne:                       ; HL = live slot, A = card -> place it, delta-repaint, brief hold
-    ld (hl),a
-    call PaintAll                ; delta = this one card -> tear-free
-    ld b,2
-    jp DealPace                  ; ~2 extra frames of deal rhythm, then ret
+DrawDealtCard:                   ; A=card, D=col, E=row -> HALT, draw to the screen, brief hold
+    halt
+    push af
+    push de
+    call DemoCheckSpace          ; the demo can bail mid-deal (clobbers A)
+    pop de
+    pop af
+    call BlitCard                ; unrolled-LDI draw -> stays ahead of the raster
+    ld b,DEALHOLD
+    jp DealPace
 
-RevealHands:                     ; bring back Player[k] then Opp[k] from DealSave[0..5], k=0..2
+RevealHands:                     ; deal Player[k] face-up + Opp[k] as a BACK, k=0..2
     xor a
+    ld (ScrOfs),a                ; draw to the live screen (0x4000)
     ld (Tmp0),a
 .rh:
+    ld a,(Tmp0)                  ; player card = DealSave[k] -> Player[k] @ HandCol(k), row 16
+    ld hl,DealSave
+    call addHLA
+    ld c,(hl)
     ld a,(Tmp0)
     ld hl,Player
     call addHLA
-    push hl
+    ld (hl),c                    ; keep state in sync (so the next PaintAll is a no-op)
     ld a,(Tmp0)
-    ld hl,DealSave
-    call addHLA
-    ld a,(hl)
-    pop hl
-    call RevealOne
-    ld a,(Tmp0)
-    ld hl,Opp
-    call addHLA
-    push hl
-    ld a,(Tmp0)
+    call HandCol                 ; A=col, preserves C
+    ld d,a
+    ld e,16
+    ld a,c
+    call DrawDealtCard
+    ld a,(Tmp0)                  ; opp card = DealSave[3+k] -> Opp[k]; drawn as a BACK @ row 0
     add a,3
     ld hl,DealSave
     call addHLA
-    ld a,(hl)
-    pop hl
-    call RevealOne
+    ld c,(hl)
+    ld a,(Tmp0)
+    ld hl,Opp
+    call addHLA
+    ld (hl),c
+    ld a,(Tmp0)
+    call HandCol
+    ld d,a
+    ld e,0
+    ld a,BACK
+    call DrawDealtCard
     ld hl,Tmp0
     inc (hl)
     ld a,(hl)
@@ -5290,21 +5311,28 @@ RevealHands:                     ; bring back Player[k] then Opp[k] from DealSav
     jr c,.rh
     ret
 
-RevealTable:                     ; bring back Table[k] from DealSave[6..9], k=0..3
+RevealTable:                     ; deal Table[k] at its FINAL 4-card slot, row 8, k=0..3
     xor a
+    ld (ScrOfs),a
     ld (Tmp0),a
 .rt:
     ld a,(Tmp0)
-    ld hl,Table
-    call addHLA
-    push hl
+    call TableSlotCol            ; A=col FIRST (it clobbers BC/DE)
+    ld d,a
     ld a,(Tmp0)
     add a,6
     ld hl,DealSave
     call addHLA
-    ld a,(hl)
-    pop hl
-    call RevealOne
+    ld a,(hl)                    ; A = table card
+    push af
+    ld c,a
+    ld a,(Tmp0)
+    ld hl,Table
+    call addHLA
+    ld (hl),c                    ; keep state in sync
+    pop af
+    ld e,8
+    call DrawDealtCard
     ld hl,Tmp0
     inc (hl)
     ld a,(hl)
