@@ -3123,14 +3123,8 @@ ResolvePlay:
     ld hl,TableN
     inc (hl)
     call ZipCompact              ; existing cards make room + the new one settles (no snap)
-    ld a,(TableN)
-    cp 7
-    jr c,.done                   ; uncrowded -> the laid card is already clear
-    ld a,(TableN)
-    dec a
-    call FlashTableCard          ; crowded -> flash the laid card so it stands out
-    ld b,2
-    call Delay
+                                 ; (no crowded-table flash: the slide already shows where the
+                                 ;  card lands; the hardware-FLASH blink read as a glitch)
 .done:
     ret
 
