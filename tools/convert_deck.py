@@ -75,6 +75,34 @@ def stamp_badge(b, bits, bx=2, by=2):
     for y in range(bh):
         for x in range(bw):
             if bits[y][x] and 0<=bx+x<CW*8 and 0<=by+y<CH*8: b[by+y][bx+x]=1
+
+# --- King crown ----------------------------------------------------------
+# At 48x64 the Fante (knave, value 8) and Re (king, value 10) are both standing figures and
+# read as near-twins (the real tell -- a spiky crown vs a floppy cap -- is lost). So stamp a
+# small 3-point crown on the KING's head: it sits on the hair (band) with the points rising
+# into the white above, and the bare-headed Fante is then "the one without a crown".
+CROWN_TMPL=["#  #  #","## ## #","#######","#######"]
+# per-suit: ignore the corner coin/cup when finding the head-top, and a CRT-tuned x nudge.
+KCROWN_BADGE={0:lambda x,y:(x>=30 and y<26), 1:lambda x,y:(x<20 and y<22),
+              2:lambda x,y:False, 3:lambda x,y:False}
+KCROWN_NUDGE={0:0, 1:0, 2:2, 3:-1}   # Spade +2, Bastoni -1 (Tony, on the CRT)
+def crown_king(b, suit):
+    W,H=CW*8,CH*8; bad=KCROWN_BADGE[suit]
+    ht,cx=10,W//2
+    for y in range(4,32):                                  # first wide ink run = head/hair top
+        xs=[x for x in range(3,W-3) if b[y][x] and not bad(x,y)]
+        if len(xs)>=5:
+            xs.sort(); mid=xs[len(xs)//2]; cen=[x for x in xs if abs(x-mid)<=8]
+            ht,cx=y,sum(cen)//len(cen); break
+    cx+=KCROWN_NUDGE[suit]
+    for y in range(ht-3,ht):                               # clear white above so the points read
+        for x in range(cx-5,cx+6):
+            if 0<=x<W and 0<=y<H: b[y][x]=0
+    ax,ay=cx-3,ht-3; w=max(len(r) for r in CROWN_TMPL); t=[r.ljust(w) for r in CROWN_TMPL]
+    for yy,row in enumerate(t):
+        for xx,ch in enumerate(row):
+            x,y=ax+xx,ay+yy
+            if 0<=x<W and 0<=y<H and ch=='#': b[y][x]=1
     return b
 def _fit(src,W,H,margin):
     """Like mono_outline.fit but accepts a path OR a PIL image, and also returns
@@ -129,6 +157,7 @@ for i,f in enumerate(files):
         if suit==1: stamp_badge(b,CUP_BITS)  # coppe figures: add cup suit pip
     else:
         b=dm(f)
+    if value==10: crown_king(b,suit)         # Re (king): crown so it isn't mistaken for the Fante
     deck+=bmpblob(b)
     M.png(b,CW*8,CH*8,f"/tmp/deck_{i:02d}.png",scale=4); imgs.append(f"/tmp/deck_{i:02d}.png")
 # card back: lattice pattern + border
