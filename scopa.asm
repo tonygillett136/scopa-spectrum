@@ -17,10 +17,10 @@ FASTSIM = 1
 FASTSIM = 1
     ENDIF
 ; ---- state ----
-; State block was at 0xB000 (code ceiling). Slid up to 0xB400 to hand ~1KB more code room
-; for the Esperto card-counting AI (endgame minimax). State uses ~0x140B; stack at 0xBFF0
-; leaves ~2.5KB below it for the stack + the minimax search frames.
-    ORG 0xB400
+; State block was at 0xB000 (code ceiling). Slid up to 0xB500 to hand code room for the Esperto
+; card-counting AI (endgame minimax) + the deal cascade. State uses ~0x150B; stack at 0xBFF0
+; leaves ~2.4KB below it for the stack + the minimax search frames.
+    ORG 0xB500
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -115,6 +115,7 @@ LfPM:      defs 1                  ; .. PMatch (ScoreRound bumps the match total
 LfOM:      defs 1                  ; .. OMatch
 FRSZ = 32
 Frames:    defs FRSZ*7             ; per-depth node frame: undo snapshot + loop locals + a/b window
+DealSave:  defs 10                 ; deal cascade: the dealt cards [P0-2 O0-2 T0-3] while revealing
 
     ORG 0x8000
 Start:
@@ -1071,6 +1072,52 @@ FM37:                            ; play one full match -> A = winner (0 = player
 .h42:
     jr .h42
     ENDIF
+    IF TESTMODE == 44
+    ; DEAL CASCADE: deal a board, snapshot it, run the cascade, confirm every dealt card came
+    ; back (none lost/duplicated). 0x7E2B = mismatch count (exp 0). Screenshot = final board.
+    call NewMatch
+    call NewRound
+    ld hl,Player
+    ld de,0x7E20
+    ld bc,3
+    ldir
+    ld hl,Opp
+    ld bc,3
+    ldir
+    ld hl,Table
+    ld bc,4
+    ldir                         ; 0x7E20..29 = dealt [P0-2 O0-2 T0-3]
+    call DealCascade
+    xor a
+    ld (0x7E2B),a
+    ld hl,Player
+    ld de,0x7E20
+    ld b,3
+    call .cmp44
+    ld hl,Opp
+    ld de,0x7E23
+    ld b,3
+    call .cmp44
+    ld hl,Table
+    ld de,0x7E26
+    ld b,4
+    call .cmp44
+.h44:
+    jr .h44
+.cmp44:
+    ld a,(de)
+    cp (hl)
+    jr z,.cm44n
+    push hl
+    ld hl,0x7E2B
+    inc (hl)
+    pop hl
+.cm44n:
+    inc hl
+    inc de
+    djnz .cmp44
+    ret
+    ENDIF
     IF TESTMODE == 41
     ; ESPERTO INTEGRATION: play 16 full Esperto-vs-Esperto matches (FastSim) through the REAL
     ; turn loop (PlayRound -> OppTurn/DemoPlayerTurn -> aiSelectPlay -> EndgameSearch -> ResolvePlay).
@@ -1292,6 +1339,7 @@ RunMatch:
     call NewMatch
 .round:
     call NewRound
+    call DealCascade             ; deal the board in one card at a time (tear-free)
     call PlayRound
     call ScoreRound
     ld a,(Pnapola)
@@ -1475,6 +1523,7 @@ PlayRound:
     cp 40
     jr nc,.end
     call DealHands
+    call DealRevealHands         ; cascade the 6 new hand cards in (tear-free), table stays
     jr .l
 .end:
     call SweepToLast
@@ -5186,6 +5235,133 @@ PaintAll:
     xor a
     ld (ScrOfs),a
     ret
+
+; ===== deal cascade: reveal freshly-dealt cards ONE AT A TIME. Each reveal repaints via the
+; delta path, so every step changes just a single card -> stays ahead of the beam (tear-free),
+; where a whole-board paint cannot. The cards are dealt into state as usual, then hidden and
+; brought back in sequence. =====
+BlankFF:                         ; HL=ptr, B=count -> fill 0xFF
+    ld (hl),0xFF
+    inc hl
+    djnz BlankFF
+    ret
+
+DealPace:                        ; B = frames to hold (polls SPACE so the demo can bail)
+    halt
+    call DemoCheckSpace
+    djnz DealPace
+    ret
+
+RevealOne:                       ; HL = live slot, A = card -> place it, delta-repaint, brief hold
+    ld (hl),a
+    call PaintAll                ; delta = this one card -> tear-free
+    ld b,2
+    jp DealPace                  ; ~2 extra frames of deal rhythm, then ret
+
+RevealHands:                     ; bring back Player[k] then Opp[k] from DealSave[0..5], k=0..2
+    xor a
+    ld (Tmp0),a
+.rh:
+    ld a,(Tmp0)
+    ld hl,Player
+    call addHLA
+    push hl
+    ld a,(Tmp0)
+    ld hl,DealSave
+    call addHLA
+    ld a,(hl)
+    pop hl
+    call RevealOne
+    ld a,(Tmp0)
+    ld hl,Opp
+    call addHLA
+    push hl
+    ld a,(Tmp0)
+    add a,3
+    ld hl,DealSave
+    call addHLA
+    ld a,(hl)
+    pop hl
+    call RevealOne
+    ld hl,Tmp0
+    inc (hl)
+    ld a,(hl)
+    cp 3
+    jr c,.rh
+    ret
+
+RevealTable:                     ; bring back Table[k] from DealSave[6..9], k=0..3
+    xor a
+    ld (Tmp0),a
+.rt:
+    ld a,(Tmp0)
+    ld hl,Table
+    call addHLA
+    push hl
+    ld a,(Tmp0)
+    add a,6
+    ld hl,DealSave
+    call addHLA
+    ld a,(hl)
+    pop hl
+    call RevealOne
+    ld hl,Tmp0
+    inc (hl)
+    ld a,(hl)
+    cp 4
+    jr c,.rt
+    ret
+
+DealCascade:                     ; round start: empty board (scene cut), then deal hands + table
+    IF FASTSIM
+    ld a,(FastSim)
+    or a
+    ret nz
+    ENDIF
+    ld hl,Player
+    ld de,DealSave
+    ld bc,3
+    ldir
+    ld hl,Opp
+    ld bc,3
+    ldir
+    ld hl,Table
+    ld bc,4
+    ldir                         ; DealSave = [P0 P1 P2 O0 O1 O2 T0 T1 T2 T3]
+    ld hl,Player
+    ld b,3
+    call BlankFF
+    ld hl,Opp
+    ld b,3
+    call BlankFF
+    ld hl,Table
+    ld b,4
+    call BlankFF                 ; TableN unchanged -> fixed 4-card layout; render skips 0xFF
+    call PaintAll                ; the empty table (cards cascade onto it next)
+    call RevealHands
+    jp RevealTable
+
+DealRevealHands:                 ; mid-game redeal: the table stays, just cascade the 6 new cards
+    IF FASTSIM
+    ld a,(FastSim)
+    or a
+    ret nz
+    ENDIF
+    ld hl,Player
+    ld de,DealSave
+    ld bc,3
+    ldir
+    ld hl,Opp
+    ld bc,3
+    ldir
+    ld hl,Player
+    ld b,3
+    call BlankFF
+    ld hl,Opp
+    ld b,3
+    call BlankFF                 ; screen already shows empty hands -> no scene-cut paint needed
+    jp RevealHands
+
 ; RenderShadow: render the whole frame into the shadow buffer (no blit, ScrOfs left 0x20).
 ; The slide animation reuses this as its per-step background.
 RenderShadow:
@@ -5240,6 +5416,8 @@ RenderShadow:
     cp 27
     jr nc,.tbn
     ld a,(ix+0)
+    cp 0xFF
+    jr z,.tbn                    ; blanked slot (deal cascade) -> skip; keeps the 4-card layout fixed
     ld e,8
     push bc
     push de
