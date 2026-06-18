@@ -17,10 +17,10 @@ FASTSIM = 1
 FASTSIM = 1
     ENDIF
 ; ---- state ----
-; State block was at 0xB000 (code ceiling). Slid up to 0xB500 to hand code room for the Esperto
-; card-counting AI (endgame minimax) + the deal cascade. State uses ~0x150B; stack at 0xBFF0
-; leaves ~2.4KB below it for the stack + the minimax search frames.
-    ORG 0xB500
+; State block (code ceiling). Slid up to 0xB600 to hand code room for the Esperto card-counting AI
+; (endgame minimax), the deal cascade, and the shift-before-zip drop. State uses ~0x230B; stack at
+; 0xBFF0 leaves ~2KB below it for the stack + the minimax search frames.
+    ORG 0xB600
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -88,6 +88,7 @@ ZipCur:    defs 16                 ; compaction zip: each surviving card's curre
 ZipStep:   defs 1                  ; compaction zip: post-capture table column step
 ZipFrames: defs 1                  ; compaction zip: frame counter (safety cap vs hang)
 HideTable: defs 1                  ; RenderShadow flag: 1 = skip the table cards
+DropPreShift: defs 1               ; 1 = a drop whose room was already made (pack shifted) + card slid to its final slot -> ResolvePlay just records it (no re-zip)
 Acc1:      defs 2                  ; title music: melody channel phase accumulator
 Inc1:      defs 2                  ; title music: melody channel phase increment
 Acc2:      defs 2                  ; title music: bass channel phase accumulator
@@ -1072,6 +1073,73 @@ FM37:                            ; play one full match -> A = winner (0 = player
 .h42:
     jr .h42
     ENDIF
+    IF TESTMODE == 46
+    ; FULL PlayerTurn drop (integration): non-empty table + a hand card that can't capture.
+    ; Press SPACE -> .doslide should pre-shift the pack then slide the card in. Expect no crash,
+    ; TableN=4, Table=[0,1,2,9]. 0x7E20 TableN, 0x7E21..24 Table.
+    im 1
+    ei
+    call NewMatch
+    call NewRound
+    ld a,0
+    ld (Table),a
+    ld a,1
+    ld (Table+1),a
+    ld a,2
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    ld a,9                       ; Re denari (value 10) -> no capture on [1,2,3] -> drop
+    ld (Player),a
+    ld a,0xFF
+    ld (Player+1),a
+    ld (Player+2),a
+    xor a
+    ld (Cursor),a
+    call PaintAll
+    call PlayerTurn              ; waits for SPACE, then plays (drops) the card
+    ld a,(TableN)
+    ld (0x7E20),a
+    ld hl,(Table)
+    ld (0x7E21),hl
+    ld hl,(Table+2)
+    ld (0x7E23),hl
+.h46:
+    jr .h46
+    ENDIF
+    IF TESTMODE == 45
+    ; SHIFT-BEFORE-ZIP drop: 3-card table -> MakeRoom opens a 4th slot (existing cards shift),
+    ; then the pre-shift ResolvePlay drops the card into it. Expect TableN=4, Table=[0,1,2,9].
+    ; 0x7E20 TableN, 0x7E21..24 Table[0..3].
+    call NewMatch
+    call NewRound
+    ld a,0
+    ld (Table),a
+    ld a,1
+    ld (Table+1),a
+    ld a,2
+    ld (Table+2),a
+    ld a,3
+    ld (TableN),a
+    call PaintAll
+    ld b,6
+    call Delay
+    call MakeRoom
+    ld a,1
+    ld (DropPreShift),a
+    ld a,9                       ; Re of denari (value 10) -> no capture -> a drop
+    ld c,0
+    call ResolvePlay
+    call PaintAll
+    ld a,(TableN)
+    ld (0x7E20),a
+    ld hl,(Table)
+    ld (0x7E21),hl
+    ld hl,(Table+2)
+    ld (0x7E23),hl
+.h45:
+    jr .h45
+    ENDIF
     IF TESTMODE == 44
     ; DEAL CASCADE: deal a board, snapshot it, run the cascade, confirm every dealt card came
     ; back (none lost/duplicated). 0x7E2B = mismatch count (exp 0). Screenshot = final board.
@@ -1633,12 +1701,25 @@ PlayerTurn:
     call PaintAll
     ret
 .doslide:
+    xor a
+    ld (HumanTurn),a             ; stop the cursor flashing as the play resolves
+    ld (DropPreShift),a          ; default: ordinary drop/capture
+    ; shift-before-zip: a DROP onto a NON-EMPTY table -> shift the pack to open the gap FIRST
+    ; (the card waits in the hand, visible, during the shift), then it slides into the gap.
+    ld a,(OptionN)
+    or a
+    jr nz,.dscut                 ; a capture -> slide to the table as usual
+    ld a,(TableN)
+    or a
+    jr z,.dscut                  ; empty table -> just slide to slot 0
+    call MakeRoom                ; existing cards shift; TableN now oldN+1, gap (0xFF) at slot oldN
+    ld a,1
+    ld (DropPreShift),a
+.dscut:
     ld a,(Cursor)                ; now take the card out of the hand and slide it to the table
     ld hl,Player
     call addHLA
     ld (hl),0xFF
-    xor a
-    ld (HumanTurn),a            ; stop the cursor flashing as the play resolves
     ld a,(Cursor)
     call HandCol
     ld (SlHandCol),a
@@ -1646,7 +1727,15 @@ PlayerTurn:
     ld (SlRow),a
     ld a,0xFF                    ; -1 cell/step (rows 16 -> 8, 8 smooth synced steps)
     ld (SlRowStep),a
+    ld a,(DropPreShift)          ; slide target: the opened gap, or the next slot
+    or a
+    jr z,.dsnext
     ld a,(TableN)
+    dec a                        ; pre-shift: the gap slot (oldN)
+    jr .dsgo
+.dsnext:
+    ld a,(TableN)                ; ordinary: the next slot
+.dsgo:
     call TableSlotCol
     ld (SlDestCol),a
     call SlideIn
@@ -1771,7 +1860,24 @@ OppTurn:
     ld (SlRow),a                 ; rows 0 -> 8 (CPU hand at top, 8 smooth synced steps)
     ld a,1
     ld (SlRowStep),a
+    xor a
+    ld (DropPreShift),a          ; default: ordinary drop/capture
+    ; shift-before-zip: a DROP onto a NON-EMPTY table -> shift the pack first, then slide in
+    ld a,(OptionN)
+    or a
+    jr nz,.oppdest               ; a capture -> slide to the next slot
     ld a,(TableN)
+    or a
+    jr z,.oppdest                ; empty table -> slot 0
+    call MakeRoom                ; existing cards shift; TableN now oldN+1, gap at slot oldN
+    ld a,1
+    ld (DropPreShift),a
+    ld a,(TableN)
+    dec a                        ; slide target = the gap slot
+    jr .oppgo
+.oppdest:
+    ld a,(TableN)
+.oppgo:
     call TableSlotCol
     ld (SlDestCol),a
     call SlideIn
@@ -1846,6 +1952,18 @@ DemoPlayerTurn:
     call Delay
     ret
 .demoslide:
+    xor a
+    ld (DropPreShift),a
+    ld a,(OptionN)
+    or a
+    jr nz,.demcut                ; capture -> slide as usual
+    ld a,(TableN)
+    or a
+    jr z,.demcut                 ; empty -> slot 0
+    call MakeRoom                ; shift the pack first (card stays in hand), then slide into the gap
+    ld a,1
+    ld (DropPreShift),a
+.demcut:
     ld a,(BestSlot)
     ld hl,Player
     call addHLA
@@ -1857,7 +1975,15 @@ DemoPlayerTurn:
     ld (SlRow),a                 ; player hand at the bottom (rows 16 -> 8)
     ld a,0xFF
     ld (SlRowStep),a
+    ld a,(DropPreShift)
+    or a
+    jr z,.demnext
     ld a,(TableN)
+    dec a                        ; the opened gap
+    jr .demgo
+.demnext:
+    ld a,(TableN)
+.demgo:
     call TableSlotCol
     ld (SlDestCol),a
     call SlideIn
@@ -3015,6 +3141,9 @@ ResolvePlay:
     ld (Who),a
     ld a,(Played)
     call MarkSeen                ; the played card is now visible to the AI
+    ld a,(DropPreShift)          ; shift-before-zip drop: room already made + card slid to its
+    or a                         ; final slot -> just record it (skip findAllCaptures, which would
+    jp nz,.droppre               ; trip over the 0xFF placeholder still in Table[])
     ld a,(Played)
     call valueOf
     call findAllCaptures
@@ -3126,6 +3255,16 @@ ResolvePlay:
                                  ; (no crowded-table flash: the slide already shows where the
                                  ;  card lands; the hardware-FLASH blink read as a glitch)
 .done:
+    ret
+.droppre:                        ; shift-before-zip drop: room made + card already slid to slot
+    ld hl,Table                  ; oldN (= TableN-1). Just drop it into the placeholder.
+    ld a,(TableN)
+    dec a
+    call addHLA
+    ld a,(Played)
+    ld (hl),a
+    xor a
+    ld (DropPreShift),a          ; consumed -> clear for the next play
     ret
 
 ; IsLastPlay: A=1 if the card now being played is the last of the round.
@@ -3548,8 +3687,11 @@ DrawZipCards:
     ld a,e
     call addHLA
     ld a,(hl)                    ; A = card id
+    cp 0xFF
+    jr z,.dzsk                   ; blank placeholder slot (shift-before-zip gap) -> skip
     ld e,8                       ; row 8 (the table row)
     call BlitCard
+.dzsk:
     pop de
     pop bc
 .dzn:
@@ -3572,6 +3714,36 @@ FillZipCols:
     inc e
     djnz .f
     ret
+
+; MakeRoom: for a DROP onto a non-empty table -> shift the EXISTING cards into the spacing
+; they'll have once the new card is added, leaving the new card's slot empty so it can then
+; slide into the gap. A 0xFF placeholder at the new slot (DrawZipCards/RenderShadow skip it)
+; makes ZipCompact pick up the new, tighter step. Leaves TableN = oldN+1 and Table[oldN]=0xFF;
+; the caller then slides the card to slot oldN and ResolvePlay (DropPreShift) records it there.
+MakeRoom:
+    ld a,(TableN)
+    or a
+    ret z                        ; empty table -> nothing to shift
+    ld b,a                       ; B = oldN
+    call TableStep               ; old step
+    ld c,a
+    call FillZipCols             ; ZipCur[0..oldN-1] = existing current columns (old spacing)
+    ld a,(TableN)
+    ld hl,Table
+    call addHLA
+    ld (hl),0xFF                 ; Table[oldN] = blank placeholder
+    ld hl,TableN
+    inc (hl)                     ; TableN = oldN+1 -> TableStep now gives the new (tighter) spacing
+    ld a,(TableN)
+    dec a                        ; A = oldN (the gap slot)
+    push af
+    call TableSlotCol            ; A = gap column = 1 + newstep*oldN
+    ld c,a
+    pop af
+    ld hl,ZipCur
+    call addHLA
+    ld (hl),c                    ; ZipCur[oldN] = gap col == target -> ZipMoveSpan ignores it
+    jp ZipCompact                ; animate the existing cards into the new spacing (gap stays empty)
 
 ; findAllCaptures: A=value -> Options[] (table-index masks), OptionN.
 ; Singles take priority: if any single matches, ONLY singles are listed.
