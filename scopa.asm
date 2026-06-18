@@ -1073,6 +1073,17 @@ FM37:                            ; play one full match -> A = winner (0 = player
 .h42:
     jr .h42
     ENDIF
+    IF TESTMODE == 47
+    ; DEMO BAR: DemoMode on + a full board (3 CPU backs). The "PRESS SPACE TO PLAY" bar should be
+    ; clean -- no card poking through at col 25 (after the Y). Screenshot only.
+    ld a,1
+    ld (DemoMode),a
+    call NewMatch
+    call NewRound
+    call PaintAll
+.h47:
+    jr .h47
+    ENDIF
     IF TESTMODE == 46
     ; FULL PlayerTurn drop (integration): non-empty table + a hand card that can't capture.
     ; Press SPACE -> .doslide should pre-shift the pack then slide the card in. Expect no crash,
@@ -1525,6 +1536,24 @@ DemoOverlay:
     ld (hl),0x47                 ; bright white ink on black paper
     inc hl
     djnz .attr
+    ; clear the bar's BITMAP too (char-row 0, cols 4..27, all 8 pixel lines) so a card top can't
+    ; poke through where there's no text -- e.g. the CPU's 3rd back (cols 20-25) at col 25, just
+    ; past the Y of PLAY (the text only covers cols 6-24).
+    ld a,(ScrOfs)
+    add a,0x40                   ; 0x40 (screen) or 0x60 (shadow) = char-row 0, line 0
+    ld d,a
+    ld e,8                       ; 8 pixel lines
+.barbmp:
+    ld h,d
+    ld l,4
+    ld b,24
+.barbmpl:
+    ld (hl),0
+    inc hl
+    djnz .barbmpl
+    inc d
+    dec e
+    jr nz,.barbmp
     ld hl,StrDemoPrompt          ; centred within the bar
     ld d,6
     ld e,0
@@ -3433,34 +3462,69 @@ ZipCompact:
                                  ; glide. (Was briefly dropped to 14, which made a lone survivor
                                  ; moving a moderate distance -- a wide SPAN but only one card --
                                  ; wipe/jump instead of slide; the real tear was the snap below.)
-    ; wide block: can't slide tear-free in one frame. Snap the cards to their compacted positions
-    ; in state, then REVEAL the table band left-to-right in narrow chunks (each a tear-free
-    ; BlitSlice) -> the survivors re-settle a strip at a time, no full-blit tear.
-    call ZipSnap                 ; ZipCur[k] = target column for every survivor
+    ; wide block: can't slide ALL cards together tear-free (the whole band changes per frame).
+    ; Re-settle them ONE AT A TIME -- each card's slice follows just that card (~card width + a
+    ; step), so it stays ahead of the beam. The survivors ripple into their compacted columns.
+    xor a
+    ld (ZipFrames),a             ; total-step safety counter
+    ld (ZipK),a                  ; card index k = 0
+.zwc:                            ; --- slide card ZipK to its compacted column ---
+    ld a,(ZipK)
+    call TableSlotCol            ; target = 1 + step*k
+    ld (ZipTgt),a
+.zwstep:
+    ld a,(ZipTgt)
+    ld d,a                       ; D = target
+    ld a,(ZipK)
+    ld hl,ZipCur
+    call addHLA                  ; HL = &ZipCur[k] (addHLA preserves DE)
+    ld a,(hl)                    ; A = current column
+    cp d
+    jr z,.zwnext                 ; settled -> next card
+    ld b,a                       ; B = prev (current) column
+    jr c,.zwright                ; cur < target -> move right
+    sub d                        ; cur > target: A = distance
+    cp 5
+    jr c,.zwsnap                 ; within one step -> land on target
+    ld a,b
+    sub 4                        ; move 4 left
+    jr .zwgo
+.zwright:
+    ld a,d
+    sub b                        ; A = distance (target - cur)
+    cp 5
+    jr c,.zwsnap
+    ld a,b
+    add a,4                      ; move 4 right
+    jr .zwgo
+.zwsnap:
+    ld a,d                       ; snap onto the target
+.zwgo:
+    ld (hl),a                    ; ZipCur[k] = new column
+    ld c,a                       ; C = new
     ld a,1
     ld (HideTable),a
-    call RenderShadow            ; compacted board -> shadow (HUD/hand rows are outside the band)
+    push bc
+    call RenderShadow            ; board WITHOUT the table -> shadow
     xor a
     ld (HideTable),a
-    call DrawZipCards            ; survivors at their final columns, into the shadow
-    xor a
-    ld (ZipSliceC0),a            ; reveal the band (cols 0..31) in 4-col chunks, left to right
-.snwipe:
-    ld a,(ZipSliceC0)
-    ld c,a
-    ld a,32
-    sub c                        ; columns remaining
-    cp 5
-    jr c,.snwl                   ; <=4 left -> copy the remainder
-    ld a,4
-.snwl:
-    ld (ZipSliceW),a
-    call BlitSlice               ; HALT + copy this band chunk from the shadow -> tear-free
-    ld a,(ZipSliceC0)
-    add a,4
-    ld (ZipSliceC0),a
-    cp 32
-    jr c,.snwipe
+    call DrawZipCards            ; all cards at their CURRENT ZipCur (only card k has moved)
+    pop bc                       ; B = prev, C = new
+    call ZipSliceForMove         ; slice = just card k's footprint + the cols it vacated
+    call BlitSlice               ; HALT + copy that narrow slice -> tear-free
+    ld hl,ZipFrames
+    inc (hl)
+    ld a,(hl)
+    cp 80
+    jr nc,.zipdone               ; safety cap -> never hangs
+    jr .zwstep
+.zwnext:
+    ld hl,ZipK
+    inc (hl)
+    ld a,(hl)
+    ld hl,TableN
+    cp (hl)
+    jr c,.zwc
     jr .zipdone
 .zsmooth:
     xor a
@@ -3531,9 +3595,33 @@ ZipCompact:
     ld (ScrOfs),a
     ret
 
+; ZipSliceForMove: B=prev col, C=new col -> set ZipSliceC0=min(B,C), ZipSliceW=(max(B,C)+6)-min.
+; The slice spans just the moving card's new footprint plus the columns it vacated -> narrow.
+ZipSliceForMove:
+    ld a,b
+    cp c
+    jr c,.bup                    ; prev < new (moving right) -> min=prev, max=new
+    ld a,c                       ; moving left -> min=new, max=prev
+    ld (ZipSliceC0),a
+    ld a,b
+    add a,6
+    sub c
+    ld (ZipSliceW),a
+    ret
+.bup:
+    ld a,b
+    ld (ZipSliceC0),a
+    ld a,c
+    add a,6
+    sub b
+    ld (ZipSliceW),a
+    ret
+
 ZipSliceC0 equ 0x7E08            ; re-pack: leftmost column in motion (slice left edge)
 ZipSliceW  equ 0x7E09            ; re-pack: slice width = 32 - ZipSliceC0
 FastSim    equ 0x7E0A            ; (TESTMODE 37 only) 1 = skip display/delays for the bias match-sim
+ZipK       equ 0x7E0D            ; wide re-pack (card-by-card): current card index
+ZipTgt     equ 0x7E0E            ; wide re-pack: current card's target column
 
 ; ZipMoveSpan: -> A = width of the moving block (= 32 - leftmost moving column), and stores
 ; that leftmost column in ZipSliceC0. A card is "moving" if its current column (ZipCur[k])
