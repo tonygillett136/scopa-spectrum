@@ -860,3 +860,21 @@ of the beam -> tear-free smooth motion. If wider (the rare leftmost-of-a-full-ta
 jumps the survivors to their targets and one full Blit shows it -- a single brief blink, not sustained
 tearing. VERIFIED: TESTMODE 35 (W=13) smooth -> cards on 1,6,11; TESTMODE 36 (W=31) snap -> 1,6,11,16,21;
 slice render correct; demo re-packs clean. Threshold (cp 19) one tunable byte. code 47 B free (TIGHT).
+
+## AI depth audit: mid-game heuristic is at its 1-ply ceiling (2026-06-18)
+Tony watched the demo throw a king from [two kings, empty table, one the Re di denari] and
+questioned the whole AI. Investigated hard: faithful host-mirror (tools/ai_audit.py +
+tools/ai_prime.py over ai_tune.py) with the ACTUAL shipped weights (ai_tune's W0 is the
+pre-tuning baseline). Findings: (1) the play is CORRECT — the AI keeps the coin king, throws
+the non-coin one (DROP_DENARI −4 tips it; both kings equal for primiera at prime-10), confirmed
+by independent strategy research; the CRT read was likely the visually-similar non-coin king.
+(2) Strength: 0.837 vs random, mirror 0.498 (no side bias), 75% of deals contain a scopa,
+denari draws 21%. (3) Every cheap improvement was prototyped and FAILS: re-tune from shipped =
+0.507 (noise, local optimum); naive 2-ply = 0.46–0.48 (worse); primiera/suit-completion
+awareness = 0.476–0.498 (worse — and it won primiera 47.8% vs 47.7%, i.e. NO better, while
+losing denari); paired-lead = noise. The insight: the comparative points (primiera/denari/carte)
+are EMERGENT over the whole deal, so 1-ply local greed can't steer them — it only distorts the
+locally-correct choices the heuristic already makes. Conclusion: the heuristic is at its
+architectural ceiling; the only real lever (search) is already deployed where it's exact and
+cheap (the deck-empty Esperto minimax). DECISION (Tony): accept the verdict, leave the AI as is.
+Full write-up in AI_ANALYSIS.md. No code change. Diagnostic scripts kept in tools/.

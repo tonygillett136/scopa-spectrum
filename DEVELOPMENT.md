@@ -228,6 +228,14 @@ old hand weights ≈ 54% over 12k matches, and better vs random too. Baked: card
 update TESTMODE 18/19 expected scores. A 2-ply "paranoid" lookahead was tried and is NOT worth it
 (≈no gain once weights are tuned, ~4× slower/move; worst-case lookahead is too pessimistic under
 hidden info) — see `twoply` in ai_tune.py.
+**Depth audit (2026-06-18, see AI_ANALYSIS.md):** the mid-game heuristic is at the ceiling of its
+1-ply architecture. Re-tuning from the shipped weights (0.507), naive 2-ply (0.46–0.48), and
+primiera/suit-completion awareness (0.476–0.498) were all prototyped (tools/ai_audit.py,
+tools/ai_prime.py) and NONE beats the baseline — the comparative points (primiera/denari/carte)
+are emergent over the whole deal, so 1-ply local greed can't steer them without distorting the
+locally-correct grabs. The only real strength lever is search, already deployed where it's exact
+and cheap (the deck-empty Esperto minimax). Decision: leave the AI as is. The coin-king play that
+prompted the audit is correct (keeps the coin, throws the non-coin king).
 
 ---
 
