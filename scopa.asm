@@ -1808,13 +1808,12 @@ OppTurn:
     ld b,1
     call Delay
     call aiSelectPlay            ; A = best slot, sets AIOpt
-    push af                      ; save the played slot
     ld hl,Opp
     call addHLA
     ld a,(hl)
-    ld (hl),0xFF                 ; remove the played card -> leaves a gap at that slot
-    ld (Played),a
-    pop af                       ; the played slot
+    ld (Played),a                ; read the played card -- but DON'T remove it yet: it must stay a
+                                 ; visible back through MakeRoom, else the CPU card blinks out
+    ld a,(BestSlot)
     call HandCol                 ; CPU backs are drawn at their REAL slot columns (with gaps,
     ld (SlHandCol),a             ; like the player's hand), so slide from the card's true slot
     ; --- crowded-table capture? turn the card FACE-UP IN PLACE at its slot, don't slide ---
@@ -1827,6 +1826,10 @@ OppTurn:
     ld a,(TableN)
     cp 6
     jr c,.oppslide                ; not crowded -> slide as usual
+    ld a,(BestSlot)               ; crowded capture -> remove the card from the hand (gap at slot)
+    ld hl,Opp
+    call addHLA
+    ld (hl),0xFF
     ld a,(AIOpt)
     call MaskToCapSel             ; CapSel = the captured set
     call PaintAll                 ; board with the opp slot now a gap
@@ -1865,17 +1868,25 @@ OppTurn:
     ; shift-before-zip: a DROP onto a NON-EMPTY table -> shift the pack first, then slide in
     ld a,(OptionN)
     or a
-    jr nz,.oppdest               ; a capture -> slide to the next slot
+    jr nz,.opprm                 ; a capture -> no make-room
     ld a,(TableN)
     or a
-    jr z,.oppdest                ; empty table -> slot 0
-    call MakeRoom                ; existing cards shift; TableN now oldN+1, gap at slot oldN
+    jr z,.opprm                  ; empty table -> slot 0
+    call MakeRoom                ; pack shifts (card still a VISIBLE BACK in hand), then remove+slide
     ld a,1
     ld (DropPreShift),a
+.opprm:
+    ld a,(BestSlot)              ; NOW take the card out of the hand (after the pack has shifted)
+    ld hl,Opp
+    call addHLA
+    ld (hl),0xFF
+    ld a,(DropPreShift)
+    or a
+    jr z,.oppnext
     ld a,(TableN)
-    dec a                        ; slide target = the gap slot
+    dec a                        ; the opened gap
     jr .oppgo
-.oppdest:
+.oppnext:
     ld a,(TableN)
 .oppgo:
     call TableSlotCol
@@ -3417,10 +3428,11 @@ ZipCompact:
     halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
-    cp 15
-    jr c,.zsmooth                ; narrow block -> the slice stays ahead of the beam (with ULA
-                                 ; contention margin) -> smooth glide. 21 was too loose: contention
-                                 ; made the lower band rows fall behind the beam -> tore.
+    cp 22
+    jr c,.zsmooth                ; block <=21 cols -> the slice stays ahead of the beam -> smooth
+                                 ; glide. (Was briefly dropped to 14, which made a lone survivor
+                                 ; moving a moderate distance -- a wide SPAN but only one card --
+                                 ; wipe/jump instead of slide; the real tear was the snap below.)
     ; wide block: can't slide tear-free in one frame. Snap the cards to their compacted positions
     ; in state, then REVEAL the table band left-to-right in narrow chunks (each a tear-free
     ; BlitSlice) -> the survivors re-settle a strip at a time, no full-blit tear.
