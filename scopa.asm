@@ -1347,7 +1347,7 @@ NewGame:                         ; skill/rules menu -> new match. The hidden SHI
     call SelectDifficulty
     jp RunMatch
 
-; EnterDemo: 45s idle on the title -> attract / self-play demo (CPU vs CPU, Esperto + asso piglia
+; EnterDemo: 25s idle on the title -> attract / self-play demo (CPU vs CPU, Esperto + asso piglia
 ; tutto, silent). Loops forever until the watcher presses SPACE.
 EnterDemo:
     ld a,3
@@ -4490,7 +4490,7 @@ ShowTitle:
     jr z,.help                   ; H during music -> rules screen
 .startwait:
     ld hl,0
-    ld (23672),hl                ; (re)start the 45s attract-mode idle timer
+    ld (23672),hl                ; (re)start the 25s attract-mode idle timer
 .wait:
     call ReadKeys
     bit 2,a
@@ -4499,8 +4499,8 @@ ShowTitle:
     in a,(0xFE)
     bit 4,a
     jr z,.help                   ; H pressed -> rules screen
-    ld hl,(23672)                ; idle 45s with no key -> attract / self-play demo
-    ld de,2250                   ; 45s @ 50 Hz
+    ld hl,(23672)                ; idle 25s with no key -> attract / self-play demo
+    ld de,1250                   ; 25s @ 50 Hz
     or a
     sbc hl,de
     jr c,.wait                   ; not yet -> keep waiting
