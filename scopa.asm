@@ -3457,11 +3457,13 @@ ZipCompact:
     halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
-    cp 22
-    jr c,.zsmooth                ; block <=21 cols -> the slice stays ahead of the beam -> smooth
-                                 ; glide. (Was briefly dropped to 14, which made a lone survivor
-                                 ; moving a moderate distance -- a wide SPAN but only one card --
-                                 ; wipe/jump instead of slide; the real tear was the snap below.)
+    cp 15
+    jr c,.zsmooth                ; block <=14 cols -> the all-together glide stays ahead of the beam
+                                 ; even with ULA contention -> tear-free. WIDER -> the card-by-card
+                                 ; slide below (each card's slice is narrow, so any span is tear-free).
+                                 ; 21 was too loose: a ~21-col block (e.g. 3 cards shifting a step)
+                                 ; tore in the glide. The card-by-card path now SLIDES (it used to be
+                                 ; a jumpy reveal), so it's safe to route these widths to it.
     ; wide block: can't slide ALL cards together tear-free (the whole band changes per frame).
     ; Re-settle them ONE AT A TIME -- each card's slice follows just that card (~card width + a
     ; step), so it stays ahead of the beam. The survivors ripple into their compacted columns.
