@@ -529,6 +529,39 @@ Start:
 .h14:
     jr .h14
     ENDIF
+    IF TESTMODE == 55
+    ; MIRROR of TM14 (the IsLastPlay bug): the OPPONENT clears the table but the PLAYER still
+    ; holds one card, deck empty -> total-after = 1 -> a VALID scopa for the opp (must count).
+    ; The old IsLastPlay dropped the player term (counted deck+opp only) -> wrongly suppressed
+    ; this. Expect OScopa=1, PScopa=0, TableN=0.
+    xor a
+    ld (PPileN),a
+    ld (OPileN),a
+    ld (PScopa),a
+    ld (OScopa),a
+    ld a,2
+    ld (Table),a                 ; value 3
+    ld a,3
+    ld (Table+1),a               ; value 4
+    ld a,2
+    ld (TableN),a
+    ld a,0xFF                    ; opp's played card (id 6) already removed from its hand
+    ld (Opp),a
+    ld (Opp+1),a
+    ld (Opp+2),a
+    ld a,11
+    ld (Player),a                ; the PLAYER still holds one card
+    ld a,0xFF
+    ld (Player+1),a
+    ld (Player+2),a
+    ld a,40
+    ld (DeckPos),a
+    ld a,6
+    ld c,1                       ; Who = 1 (opponent plays)
+    call ResolvePlay
+.h55:
+    jr .h55
+    ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
     ; never overlap a table card). Two 7s + a spare on the table; the played 7 sits in hand.
@@ -1796,8 +1829,9 @@ PlayRound:
     call nz,PlayerTurn
 .chk:
     call CountPlayer
-    ld b,a
-    call CountOpp
+    push af                      ; (CountOpp zeroes B via CountHand; save the player count -- harmless
+    call CountOpp                ;  here as both hands hold equal counts at round end, but consistent
+    pop bc                       ;  with IsLastPlay's fix and not a latent trap)
     add a,b
     or a
     jr nz,.l
@@ -3508,9 +3542,10 @@ ResolvePlay:
 ; is a valid scopa and must NOT be suppressed -- the old `cp 2` wrongly suppressed it.
 IsLastPlay:
     call CountPlayer
-    ld b,a
-    call CountOpp
-    add a,b                      ; A = cards left in both hands (after this card)
+    push af                      ; save playercount: CountOpp (via CountHand's djnz) returns B=0,
+    call CountOpp                ; so the old `ld b,a` then `add a,b` silently DROPPED the player
+    pop bc                       ; term and counted deck+opp only. B = playercount (C = junk flags).
+    add a,b                      ; A = player + opp = cards left in both hands (after this card)
     ld b,a
     ld a,40
     ld hl,DeckPos
@@ -3766,6 +3801,11 @@ ZipCompact:
     ld d,1                       ; D = target column (1 + step*k)
     ld e,0                       ; E = k
 .mv:
+    ld a,d                       ; clamp the target to 25 (match the draw / slide / .zwc clamp): else
+    cp 26                        ; the rightmost card at TableN=6 targets col 26 -> a transient 1-col
+    jr c,.mvc                    ; nudge into the col-31 Harlequin bleed, snapped back by the next
+    ld d,25                      ; PaintAll. Only ever the LAST card hits this, so the loop ends after.
+.mvc:
     ld hl,ZipCur
     ld a,e
     call addHLA                  ; HL = &ZipCur[k], preserves BC,DE
@@ -3858,6 +3898,11 @@ ZipMoveSpan:
     xor a
     ld (ZipSliceW),a             ; running MAX column (start low; becomes width at the end)
 .zms:
+    ld a,d                       ; clamp target to 25 (same as the draw/glide): else a 25-landed
+    cp 26                        ; rightmost card (TableN=6) reads as "still moving toward 26" and
+    jr c,.zmsc                   ; gets sized into the slice -- a phantom move. Only the last card.
+    ld d,25
+.zmsc:
     ld hl,ZipCur
     ld a,e
     call addHLA
