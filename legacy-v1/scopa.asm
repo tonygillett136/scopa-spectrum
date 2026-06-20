@@ -17,11 +17,10 @@ FASTSIM = 1
 FASTSIM = 1
     ENDIF
 ; ---- state ----
-; State block (code ceiling). Slid up to 0xB700 to hand code room for the Esperto card-counting AI
-; (endgame minimax), the deal cascade, the shift-before-zip drop, and the behind-the-beam ace-sweep
-; clear (ClearTableBehind). State uses ~0x230B (ends ~0xB92F); stack at 0xBFF0 leaves ~1.7KB below
-; it for the stack + the minimax search frames (the minimax node frames are pre-allocated in state).
-    ORG 0xB700
+; State block (code ceiling). Slid up to 0xB600 to hand code room for the Esperto card-counting AI
+; (endgame minimax), the deal cascade, and the shift-before-zip drop. State uses ~0x230B; stack at
+; 0xBFF0 leaves ~2KB below it for the stack + the minimax search frames.
+    ORG 0xB600
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -51,8 +50,6 @@ CatWin:   defs 5
 PBest:    defs 4
 Tmp0:     defs 1
 Tmp1:     defs 1
-Tmp2:     defs 1                  ; BandRows char-row counter (LDIR clobbers BC -> needs RAM)
-Removed:  defs 1                  ; cards removed by the play just resolved (ace sweep => 5+)
 BlitCrow: defs 1                  ; BlitCard/EraseCardRegion char-row counter (LDI clobbers BC)
 Options:  defs 32
 OptionN:  defs 1
@@ -102,7 +99,7 @@ AceSweepOpt: defs 1                ; 1 = the current capture is an ace-sweep -> 
 ChoiceMade: defs 1                 ; 1 = player picked the capture before the slide (card stays in hand)
 ChoiceVal:  defs 1                 ; the pre-chosen capture option index
 RevealInPlace: defs 1              ; 1 = crowded-table capture shown in place (hand/opp-slot) -> ResolvePlay skips the on-table ShowCapture
-CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen title.zx0 (2-screen rotation)
+CurTitle:   defs 2                 ; ShowTitle: address of the randomly-chosen title.rle (2-screen rotation)
 DemoMode:   defs 1                 ; 1 = attract / CPU-vs-CPU self-play demo is running
 HandPtr:    defs 2                 ; aiSelectPlay's hand source: Opp normally, Player for the demo's player turn
 SoundOn:    defs 1                 ; user sound toggle (skill menu); 1 = on (default)
@@ -307,153 +304,6 @@ Start:
     call ResolvePlay
 .h12:
     jr .h12
-    ENDIF
-    IF TESTMODE == 50
-    ; ace-SWEEP tear test: 6-card table + asso piglia tutto, player's ace takes the lot.
-    ; Removed = 6 -> the ZipCompact full-sweep branch clears the band BEHIND the beam.
-    ; Expect: all 6 cards vanish cleanly (no tear ~3/4 down), table ends empty, no hang.
-    ld a,1
-    ld (AceRule),a               ; asso piglia tutto ON
-    ld hl,Table
-    ld (hl),4
-    inc hl
-    ld (hl),5
-    inc hl
-    ld (hl),6
-    inc hl
-    ld (hl),7
-    inc hl
-    ld (hl),8
-    inc hl
-    ld (hl),35                   ; six values, mix of suits
-    ld a,6
-    ld (TableN),a
-    xor a
-    ld (Player),a                ; ace of denari (value 1) in hand slot 0
-    ld a,0xFF
-    ld (Player+1),a
-    ld (Player+2),a
-    ld a,9
-    ld (Opp),a                   ; opponent keeps a couple so the deal isn't "last play"
-    ld a,19
-    ld (Opp+1),a
-    ld a,0xFF
-    ld (Opp+2),a
-    xor a
-    ld (Cursor),a
-    ld (PPileN),a
-    ld (OPileN),a
-    ld (HumanTurn),a
-    ld (ChoiceMade),a
-    ld (DropPreShift),a
-    ld (RevealInPlace),a
-    ld a,20
-    ld (DeckPos),a               ; deck not exhausted -> a sweep here can score a scopa d'assi-style clear
-    call PaintAll
-    ld b,4
-    call Delay                   ; hold the full 6-card table for a beat
-    xor a                        ; play the ace -> sweeps the whole table
-    ld c,0
-    call ResolvePlay
-.h50:
-    jr .h50
-    ENDIF
-    IF TESTMODE == 51
-    ; col-0 FLASH-wrap probe: a FULL 8-card table, flash EVERY card (CapSel all set), then leave
-    ; the attribute row visible for a dump. If any flash write wraps past col 31, col-0 attrs
-    ; (0x5900/0x5920/.../0x59E0) will carry the FLASH bit (0x80). Expect them CLEAN if no wrap.
-    ld hl,Table
-    ld b,8
-    xor a
-.t51:
-    ld (hl),a
-    inc hl
-    inc a
-    djnz .t51                    ; Table = ids 0..7 (8 cards, step 3)
-    ld a,8
-    ld (TableN),a
-    ld hl,CapSel
-    ld b,8
-    ld a,1
-.c51:
-    ld (hl),a
-    inc hl
-    djnz .c51                    ; CapSel[0..7] = 1 -> flash all
-    xor a
-    ld (ScrOfs),a
-    call PaintAll
-    call FlashCaptured           ; the exact crowded-capture flash path
-.h51:
-    jr .h51
-    ENDIF
-    IF TESTMODE == 52
-    ; ShowCapture probe (Tony's repro): 5-card table + a played card (drawn at col 26), capturing
-    ; the rightmost table card. Dump attr row 8 + col-0 of rows 8-15, and eyeball the screenshot.
-    ld hl,Table
-    ld (hl),0
-    inc hl
-    ld (hl),1
-    inc hl
-    ld (hl),2
-    inc hl
-    ld (hl),3
-    inc hl
-    ld (hl),4                    ; 5 table cards at cols 1,6,11,16,21
-    ld a,5
-    ld (TableN),a
-    ld a,14                      ; the played card (DrawPlayedCard puts it at col 26)
-    ld (Played),a
-    ld hl,CapSel
-    ld b,16
-    xor a
-.z52:
-    ld (hl),a
-    inc hl
-    djnz .z52
-    ld a,1
-    ld (CapSel+4),a              ; capture the rightmost table card (index 4)
-    xor a
-    ld (ScrOfs),a
-    ld (RevealInPlace),a
-    call ShowCapture
-.h52:
-    jr .h52
-    ENDIF
-    IF TESTMODE == 53
-    ; clean "hand in progress" board for the website gameplay screenshot (no demo banner).
-    ld hl,Table
-    ld (hl),6                    ; 7 of denari (settebello)
-    inc hl
-    ld (hl),19                   ; Re of coppe (crowned king)
-    inc hl
-    ld (hl),27                   ; 8 of spade
-    inc hl
-    ld (hl),33                   ; 4 of bastoni
-    ld a,4
-    ld (TableN),a
-    ld hl,Player
-    ld (hl),0                    ; ace of denari
-    inc hl
-    ld (hl),24                   ; 5 of spade
-    inc hl
-    ld (hl),38                   ; 9 of bastoni (cavallo)
-    ld hl,Opp
-    ld (hl),40                   ; three face-down CPU cards (BACK)
-    inc hl
-    ld (hl),40
-    inc hl
-    ld (hl),40
-    ld a,4
-    ld (PMatch),a                ; a believable mid-match scoreline
-    ld a,3
-    ld (OMatch),a
-    xor a
-    ld (ScrOfs),a
-    ld (DemoMode),a              ; NOT the demo -> no "PRESS SPACE" banner
-    ld (HumanTurn),a
-    call PaintAll
-.h53:
-    jr .h53
     ENDIF
     IF TESTMODE == 13
     ; engine pitch check: play an ascending C-major scale, then hang
@@ -2012,8 +1862,6 @@ OppTurn:
     ld a,(AIOpt)
     call MaskToCapSel             ; CapSel = the captured set
     call PaintAll                 ; board with the opp slot now a gap
-    ld a,(Played)
-    call DecodeCardA              ; pre-warm the revealed card -> the reveal BlitCard is a HIT
     ld a,(SlHandCol)
     ld d,a
     ld e,0
@@ -3394,14 +3242,8 @@ ResolvePlay:
 .capdone:
     ld a,(Played)
     call AddToPile
-    ld a,(TableN)
-    ld (Removed),a               ; stash oldN (pre-compaction) to size the removal for ZipCompact
     call CaptureZipOld           ; record surviving cards' OLD columns (pre-compaction)
     call CompactTable
-    ld a,(Removed)               ; Removed = oldN - newN  (ace sweep -> 5+; the tearing case)
-    ld hl,TableN
-    sub (hl)
-    ld (Removed),a
     call ZipCompact              ; zip the survivors to their new compacted columns
     ld a,(Who)
     ld (LastCap),a
@@ -3449,8 +3291,6 @@ ResolvePlay:
     ld (hl),a
     ld hl,TableN
     inc (hl)
-    xor a
-    ld (Removed),a               ; a drop removes nothing -> never the behind-beam clear path
     call ZipCompact              ; existing cards make room + the new one settles (no snap)
                                  ; (no crowded-table flash: the slide already shows where the
                                  ;  card lands; the hardware-FLASH blink read as a glitch)
@@ -3594,19 +3434,7 @@ ZipCompact:
     ENDIF
     ld a,(TableN)
     or a
-    jr nz,.havesurv
-    ; --- full sweep: a capture emptied the table. A small clear (<5 cards) the next PaintAll
-    ; redraws tear-free; a big ace-sweep (5+) overwhelms the ahead-of-beam delta and tears
-    ; ~3/4 of the way down -> clear the (now-blank) table band BEHIND the beam instead. ---
-    ld a,(Removed)
-    cp 5
-    ret c
-    call RenderShadow            ; shadow = the board with the table now empty
-    call ClearTableBehind        ; copy the blank band to the screen behind the raster
-    xor a
-    ld (ScrOfs),a
-    ret
-.havesurv:
+    ret z                        ; table emptied (e.g. a scopa) -> nothing to zip
     call TableStep
     ld (ZipStep),a               ; new column step
     ; --- removal beat: the taken cards are already out of Table[]; show the survivors still at
@@ -3618,22 +3446,15 @@ ZipCompact:
     xor a
     ld (HideTable),a
     call DrawZipCards
-    ld a,(Removed)
-    cp 5
-    jr c,.smalldelta             ; few cards taken -> the ahead-of-beam delta stays clear of the beam
-    call ClearTableBehind        ; big removal -> clear the taken cards behind the beam (also the beat
-    jr .beatdone                 ;                pause: ClearTableBehind already spans two frames)
-.smalldelta:
     xor a
     ld (DBstart),a               ; TEAR-FREE removal: delta-blit only the taken cards' cells
     ld a,24
     ld (DBend),a
     call DeltaBlit               ; (was a full Blit -> the "horizontal blinds" when cards vanished)
-    halt                         ; just a frame or two so the removal registers, not a long pause
-    halt
-.beatdone:
     xor a
     ld (ScrOfs),a
+    halt                         ; just a frame or two so the removal registers, not a long pause
+    halt
     ; --- decide smooth slice vs snap by how WIDE the moving block is ---
     call ZipMoveSpan             ; A = moving-block width, sets ZipSliceC0 / ZipSliceW
     cp 15
@@ -3946,99 +3767,6 @@ BlitSlice:
     cp 16
     jr c,.bsrow
     ei
-    ret
-
-; ===== behind-the-beam table-band clear ========================================================
-; Copy the whole table band (char-rows 8..15, full 32-col width) from the shadow buffer to the
-; screen while the raster is BELOW each half, so a large change (5+ cards swept by an ace) does
-; not tear. A single ahead-of-beam copy of this size is ~3.5 char-rows too slow and tears ~3/4 of
-; the way down (Tony's CRT "horizontal catch"). Splitting it across two frames -- rows 8..11 once
-; the beam has cleared row 11, rows 12..15 once it has cleared row 15 -- gives each half a ~30k T
-; post-beam margin before the raster returns, so it is immune to ULA-contention timing drift.
-; The spin loop is register-only (code in uncontended upper RAM) so its timing is exact.
-; Costs ~2 extra frames vs the delta path -- invisible for a once-per-capture sweep.
-DLY_ROW12 equ 1430               ; ~37.2k T after the interrupt : just past char-row 11 (beam 35.8k)
-DLY_ROW16 equ 1700               ; ~44.2k T after the interrupt : just past char-row 15 (beam 43.0k)
-ClearTableBehind:
-    halt                         ; sync to the interrupt -> raster at the top border
-    di
-    ld bc,DLY_ROW12
-    call SpinBC                  ; wait until the beam has passed char-row 11
-    ld a,8
-    call BandRows4               ; copy char-rows 8..11, now safely behind the beam
-    ei
-    halt
-    di
-    ld bc,DLY_ROW16
-    call SpinBC                  ; wait until the beam has passed char-row 15
-    ld a,12
-    call BandRows4               ; copy char-rows 12..15
-    ei
-    ret
-
-SpinBC:                          ; burn ~26*BC T-states (register-only -> uncontended, predictable)
-    dec bc
-    ld a,b
-    or c
-    jr nz,SpinBC
-    ret
-
-; BandRows4: copy 4 char-rows starting at char-row A, full 32-col width, shadow(+0x2000)->screen.
-BandRows4:
-    ld (Tmp0),a                  ; Tmp0 = current char-row
-    ld a,4
-    ld (Tmp2),a                  ; Tmp2 = char-rows remaining
-.brrow:
-    ld a,(Tmp0)                  ; HL = screen addr of (row, col 0), pixel line 0
-    and 0x18
-    or 0x40
-    ld h,a
-    ld a,(Tmp0)
-    and 7
-    rrca
-    rrca
-    rrca
-    ld l,a
-    ld a,8
-    ld (Tmp1),a                  ; 8 pixel lines per char-row
-.brline:
-    push hl
-    ld d,h
-    ld e,l                       ; DE = screen dst
-    ld a,h
-    add a,0x20
-    ld h,a                       ; HL = shadow src (screen + 0x2000)
-    ld bc,32
-    ldir                         ; one full-width pixel line
-    pop hl
-    inc h                        ; next pixel line within the char-row
-    ld a,(Tmp1)
-    dec a
-    ld (Tmp1),a
-    jr nz,.brline
-    ld a,(Tmp0)                  ; attr row: 0x5800 + row*32, 32 cells
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld a,h
-    add a,0x58
-    ld h,a                       ; HL = screen attr (row, col 0)
-    ld d,h
-    ld e,l
-    ld a,h
-    add a,0x20
-    ld h,a                       ; HL = shadow attr
-    ld bc,32
-    ldir
-    ld hl,Tmp0
-    inc (hl)                     ; next char-row
-    ld hl,Tmp2
-    dec (hl)
-    jr nz,.brrow
     ret
 
 ; DrawZipCards: draw each surviving table card (Table[k]) at column ZipCur[k], row 8,
@@ -5077,18 +4805,7 @@ PrintNum:
 ; =================== screens ===================
 ; PickTitle: random rotation between the two title screens. Entropy = the boot Seed
 ; (R + FRAMES, set just before ShowTitle) mixed with the live refresh register. HL = chosen.
-    IFNDEF FORCETITLE
-FORCETITLE = 0                   ; 0 = random; 1/2 = force a title (for the web .z80 capture only)
-    ENDIF
 PickTitle:
-    IF FORCETITLE == 1
-    ld hl,TitleRle
-    ret
-    ENDIF
-    IF FORCETITLE == 2
-    ld hl,Title2Rle
-    ret
-    ENDIF
     ld a,(Seed)
     ld b,a
     ld a,(Seed+1)
@@ -5223,12 +4940,34 @@ StrHtp12:   defb "First to 11 wins the match.",0
 StrHtp13:   defb "O / P  move      SPACE  play",0
 StrHtpBack: defb "PRESS SPACE TO GO BACK",0
 
-; DecompressScr: HL = ZX0-packed title source -> decode the 6912 B screen onto 0x4000.
-; The titles are now ZX0 (was SCOMPACT RLE: ~58% -> ZX0 ~40%, ~2.4 KB off the tape). dzx0 is
-; already in the build for the card art, so switching the titles to it costs no extra decoder.
+; DecompressScr: HL = RLE source -> expands exactly 6912 bytes to 0x4000.
+; Control byte: bit7 set -> run of (c & 0x7F) copies of the next byte; else literal of c bytes.
 DecompressScr:
     ld de,0x4000
-    jp dzx0_standard             ; HL=src, DE=dst; decodes exactly 6912 B then returns to our caller
+.l:
+    ld a,(hl)
+    inc hl
+    bit 7,a
+    jr nz,.run
+    ld c,a                       ; literal: copy A bytes
+    ld b,0
+    ldir
+    jr .chk
+.run:
+    and 0x7F
+    ld c,a                       ; run length
+    ld a,(hl)
+    inc hl
+.rl:
+    ld (de),a
+    inc de
+    dec c
+    jr nz,.rl
+.chk:
+    ld a,d
+    cp 0x5B                      ; DE reached 0x5B00 = 0x4000 + 6912 -> done
+    jr nz,.l
+    ret
 
 ; SelectDifficulty: skill via 1/2/3; key 4 toggles "asso piglia tutto" (default OFF).
 SelectDifficulty:
@@ -5627,15 +5366,31 @@ SetCellAttr:
     djnz .sc
     ret
 
-ShowWinYou:                      ; player won the match -> the VINCITORE image (decode-on-show)
-    ld hl,WinZX0
-    ld de,0x4000
-    call dzx0_standard           ; decompress the winner screen straight onto the display
+ShowWinYou:
+    call ClsBlack
     xor a
-    out (254),a                  ; black border to frame the image
+    out (254),a                  ; black border for the win screen
     ld (BorderC),a
+    ld hl,StrYouBig              ; big "YOU WIN" (14 cells, centred col 9)
+    ld d,9
+    ld e,4
+    call PrintBigStr
+    ld e,4
+    ld a,0x44                    ; bright green
+    call FillAttrRow
+    ld e,5
+    ld a,0x44
+    call FillAttrRow
+    ld hl,StrCampione
+    ld d,9
+    ld e,8
+    call PrintStr
+    ld e,8
+    ld a,0x46                    ; gold
+    call FillAttrRow
+    call ShowScoreAndPrompt
     ld hl,WinTune
-    call PlayJingle              ; victory fanfare
+    call PlayJingle
     ret
 ShowWinOpp:
     call ClsBlack
@@ -5793,18 +5548,13 @@ DealPace:                        ; B = frames to hold (polls SPACE so the demo c
     ret
 
 DrawDealtCard:                   ; A=card, D=col, E=row -> HALT, draw to the screen, brief hold
-    push de                      ; pre-warm the card into the cache BEFORE the HALT (off-beam),
-    push af                      ; so the post-HALT BlitCard is a cache HIT == scopa's tear-free path
-    call DecodeCardA
-    pop af
-    pop de
     halt
     push af
     push de
     call DemoCheckSpace          ; the demo can bail mid-deal (clobbers A)
     pop de
     pop af
-    call BlitCard                ; cache HIT -> unrolled-LDI draw stays ahead of the raster
+    call BlitCard                ; unrolled-LDI draw -> stays ahead of the raster
     ld b,DEALHOLD
     jp DealPace
 
@@ -5987,13 +5737,7 @@ RenderShadow:
     ld e,8
     push bc
     push de
-    ld a,d                       ; clamp the DRAW column to 25: a card in col 26 fills cols 26-31,
-    cp 26                        ; and a flashing attr in col 31 bleeds to the left screen edge on
-    jr c,.tbnc                   ; real ULAs (Harlequin). Pull it to 25 -> col 31 stays felt. The
-    ld d,25                      ; loop's natural D is restored by pop, so spacing is unchanged.
-.tbnc:
-    ld a,(ix+0)                  ; reload the CARD ID into A (the clamp above clobbered it) -- BlitCard
-    call BlitCard                ; takes A=card id; without this every table card decoded as card #col
+    call BlitCard
     pop de
     pop bc
 .tbn:
@@ -6330,11 +6074,10 @@ TableSlotCol:
     add a,e
     jr .t
 .d:
-    cp 26
+    cp 27
     ret c
-    ld a,25                      ; clamp to 25 (not 26): a card at col 26 fills cols 26-31, and a
-    ret                          ; flashing attr in col 31 bleeds to the left edge on real ULAs
-                                 ; (Harlequin). Keeping the rightmost slot at 25 leaves col 31 felt.
+    ld a,26
+    ret
 
 ; SlideDelta: A=signed delta -> HL = delta<<5 (sign-extended) = 1/8 of the column travel
 ; per step (the slide is 8 char-row steps, one cell of vertical travel each).
@@ -6363,9 +6106,7 @@ SlideIn:
     or a
     ret nz                       ; bias sim: skip the slide animation
     ENDIF
-    call RenderShadow            ; shadow = the board WITHOUT the moving card (warms those cards)
-    ld a,(Played)
-    call DecodeCardA             ; pre-warm the moving card so its per-frame blits are cache HITS
+    call RenderShadow            ; shadow = the board WITHOUT the moving card
     xor a
     ld (ScrOfs),a                ; erase + BlitCard now target the live screen (0x4000)
     ld a,(SlHandCol)
@@ -6712,10 +6453,10 @@ FlashTableCard:
     add a,e
     jr .col
 .cold:
-    cp 26
+    cp 27
     jr c,.colok
-    ld a,25                      ; clamp to 25 -- MUST match the clamped DRAW (RenderShadow /
-.colok:                          ; DrawPlayedCard), and keeps col 31 felt (Harlequin edge-bleed)
+    ld a,26                      ; clamp to 26 -- MUST match ShowCapture's clamped draw,
+.colok:                          ; else the flash lands off the played card on a full table
     ld d,a                       ; D = col
     ; width = (index < TableN-1) ? step : 6
     ld a,(TableN)
@@ -6782,15 +6523,11 @@ DrawPlayedCard:
     add a,e
     jr .col
 .cold:
-    cp 26
+    cp 27
     jr c,.cok
-    ld a,25                      ; clamp to 25 (keeps col 31 felt; Harlequin left-edge attr bleed)
+    ld a,26
 .cok:
     ld d,a
-    push de                      ; pre-warm Played (hit if already cached) so this draw is a HIT
-    ld a,(Played)
-    call DecodeCardA
-    pop de
     ld a,(Played)
     ld e,8
     call BlitCard
@@ -6971,7 +6708,15 @@ StrScopaBang: defb "SCOPA!",0
 BlitCard:
     push ix
     push de
-    call DecodeCardA             ; A=cardid -> HL = card bitmap (cache hit, or decode on miss)
+    ld hl,CARDS
+    or a
+    jr z,.noff
+    ld b,a
+    ld de,384
+.mul:
+    add hl,de
+    djnz .mul
+.noff:
     pop de                       ; D=col, E=char-row
     ; -- IX = colour (attr) address of the top char-row (+ ScrOfs) --
     push hl                      ; save card source
@@ -7266,135 +7011,11 @@ CodeEnd:
     ; This frees the whole 0x9400 region (code can now grow up to the state block @0xB000).
     ORG 0x6000
 TitleRle:
-    INCBIN "title.zx0"           ; screen 1: Ace of Swords (ZX0; decoded once at boot by DecompressScr)
+    INCBIN "title.rle"           ; screen 1: Ace of Swords
 Title2Rle:
-    INCBIN "title2.zx0"          ; screen 2: Ace of Coins (both fit below 0x8000; ShowTitle picks one)
-    ; ---- decode-on-draw with a small persistent CARD CACHE ----
-    ; The deck is stored ZX0-compressed at 0xC000 (not resident). DecodeCardA returns the
-    ; address of a card's 384B bitmap, decompressing it into a free cache slot on a miss
-    ; (round-robin evict). The cache holds a full board's distinct cards, so the per-frame
-    ; animation re-renders (RenderShadow/DrawZipCards/slides) are cache HITS -> original speed
-    ; and tear-free; only a genuinely NEW card on screen costs a decode. Frees ~7KB of the old
-    ; 0xC000-0xFD80 deck region for non-gameplay screens (win/score images) that don't need cards.
+    INCBIN "title2.rle"          ; screen 2: Ace of Coins (both fit below 0x8000; ShowTitle picks one)
     ORG 0xC000
-DeckZX0:
-    INCBIN "deck.zx0"
-Index:
-    INCBIN "deck_index.bin"
-
-CACHEN = 10                      ; >= 8 floor (smooth); 10 leaves room for the win screen
-
-    ORG 0xE100
-; DecodeCardA: A = card id -> HL = address of that card's 384B bitmap. Preserves IX.
-DecodeCardA:
-    ld hl,CacheIds
-    ld b,CACHEN
-    ld c,a                       ; C = wanted id
-.search:
-    ld a,(hl)
-    cp c
-    jr z,.hit
-    inc hl
-    djnz .search
-    ; ---- miss: decompress card C into the round-robin slot ----
-    ld hl,CacheMiss
-    inc (hl)                     ; verification counter (proves tear-critical draws are HITS)
-    ld a,(CacheNext)
-    ld e,a                       ; E = slot index
-    inc a
-    cp CACHEN
-    jr c,.adv
-    xor a
-.adv:
-    ld (CacheNext),a
-    ld d,0
-    ld hl,CacheIds
-    add hl,de
-    ld (hl),c                    ; CacheIds[slot] = wanted id
-    ld a,e
-    call SlotAddr                ; HL = CacheBase + slot*384 (dest)
-    ld (DScratch),hl             ; remember dest start = the return value
-    ex de,hl                     ; DE = dest
-    ld a,c
-    ld l,a
-    ld h,0
-    add hl,hl                    ; id*2
-    ld bc,Index
-    add hl,bc
-    ld c,(hl)
-    inc hl
-    ld b,(hl)                    ; BC = stream offset
-    ld hl,DeckZX0
-    add hl,bc                    ; HL = compressed src
-    call dzx0_standard           ; decode src -> (DE)
-    ld hl,(DScratch)             ; HL = slot start (return)
-    ret
-.hit:
-    ld a,l                       ; CacheIds page-aligned -> low byte = slot index
-    call SlotAddr
-    ret
-
-SlotAddr:                        ; A = slot index -> HL = CacheBase + A*384
-    ld hl,CacheBase
-    or a
-    ret z
-    ld b,a
-    ld de,384
-.sa:
-    add hl,de
-    djnz .sa
-    ret
-
-; WarmBoard: pre-decode every card currently on the board into the cache, at a NON-beam-critical
-; moment, so the subsequent tear-critical direct draws (deal cascade / slide / reveal) are all
-; cache HITS -> cycle-identical to scopa's proven tear-free blit. Clobbers AF,BC,DE,HL.
-WarmBoard:
-    ld hl,Player
-    ld b,3
-    call WarmArr
-    ld hl,Opp
-    ld b,3
-    call WarmArr
-    ld a,(TableN)
-    or a
-    jr z,.nt
-    ld hl,Table
-    ld b,a
-    call WarmArr
-.nt:
-    ld a,40                      ; BACK (opponent hand shows backs)
-    jp DecodeCardA               ; tail-call (warms BACK, returns)
-WarmArr:                         ; HL = id array, B = count -> warm each non-0xFF into the cache
-    ld a,(hl)
-    inc hl
-    cp 0xFF
-    jr z,.ws
-    push hl
-    push bc
-    call DecodeCardA
-    pop bc
-    pop hl
-.ws:
-    djnz WarmArr
-    ret
-
-    INCLUDE "dzx0_standard.asm"  ; 68B "Standard" ZX0 decoder (HL=src, DE=dst)
-
-DScratch:   defw 0
-CacheNext:  defb 0
-CacheMiss:  defb 0               ; total cache misses (decodes) — verification only
-
-    ORG 0xE300                   ; page-aligned so low(CacheIds+slot) = slot index (.hit path)
-CacheIds:
-    defs CACHEN, 0xFF            ; 0xFF = empty slot (no card id is 0xFF; BACK=40)
-CacheBase:
-    defs CACHEN*384              ; CACHEN decoded-card slots
-WinZX0:                          ; ZX0 winner screen -> decompressed to 0x4000 on a player match-win.
-    INCBIN "win.zx0"            ; fits in the freed deck region (cache trimmed to 10 slots)
-WinZX0End:
+    INCBIN "deck.bin"
 
     SAVESNA "scopa.sna", Start
     SAVEBIN "scopa_code.bin", 0x8000, CodeEnd-0x8000
-    SAVEBIN "deck_zx0.bin", DeckZX0, Index+82-DeckZX0    ; compressed deck + index (0xC000..)
-    SAVEBIN "decoder.bin", DecodeCardA, CacheBase-DecodeCardA  ; decoder + cache code + CacheIds(0xFF) (0xE100..)
-    SAVEBIN "win_zx0.bin", WinZX0, WinZX0End-WinZX0     ; the winner screen

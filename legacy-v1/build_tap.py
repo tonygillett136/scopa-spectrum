@@ -25,12 +25,9 @@ def header(typ,name,length,p1,p2):
 
 loadscr=open("loading.scr","rb").read()    # 0x4000 (shown during load)
 code=open("scopa_code.bin","rb").read()    # 0x8000
-title=open("title.zx0","rb").read()        # 0x6000 (ZX0-packed; decoded to 0x4000 at boot)
-title2=open("title2.zx0","rb").read()      # 0x6000+len(title) (second rotating title screen)
-deck=open("deck_zx0.bin","rb").read()      # 0xC000  (ZX0-COMPRESSED deck + index)
-decoder=open("decoder.bin","rb").read()    # 0xE100  (decoder + cache code + CacheIds=0xFF)
-winzx0=open("win_zx0.bin","rb").read()     # 0xF20A  (ZX0 VINCITORE screen; = CacheBase + CACHEN*384)
-WINADDR=0xF20A                             # past the 10-slot card cache; ShowWinYou unpacks it to 0x4000
+title=open("title.rle","rb").read()        # 0x6000 (SCOMPACT-packed; expanded to 0x4000 at boot)
+title2=open("title2.rle","rb").read()      # 0x6000+len(title) (second rotating title screen)
+deck=open("deck.bin","rb").read()          # 0xC000
 
 # ---- tiny ML loader (POKEd to the printer buffer @23296) ----
 # Loads code/title/deck SILENTLY via ROM LD-BYTES (0x0556) -> NO "Bytes:" messages
@@ -44,8 +41,6 @@ LOADER = ([0xF3]                                   # di
           + ldbytes(0x6000, len(title))
           + ldbytes(0x6000+len(title), len(title2))   # second title screen, right after the first
           + ldbytes(0xC000, len(deck))
-          + ldbytes(0xE100, len(decoder))          # decoder + cache code (the freed region)
-          + ldbytes(WINADDR, len(winzx0))          # VINCITORE screen, above the card cache
           + [0xC3,0x00,0x80])                      # jp 0x8000
 LADDR = 23296
 LEND  = LADDR + len(LOADER) - 1
@@ -70,9 +65,6 @@ tap += block(0xFF,code)     # headerless -> loaded by the ML loader
 tap += block(0xFF,title)
 tap += block(0xFF,title2)
 tap += block(0xFF,deck)
-tap += block(0xFF,decoder)
-tap += block(0xFF,winzx0)
 open("scopa.tap","wb").write(tap)
 print(f"scopa.tap = {len(tap)} bytes | BASIC {len(prog)}B (loader {len(LOADER)}B@{LADDR}) + "
-      f"SCREEN${len(loadscr)}B@0x4000 + CODE {len(code)}B@0x8000 + TITLE {len(title)}+{len(title2)}B@0x6000 + "
-      f"ZX0-DECK {len(deck)}B@0xC000 + DECODER {len(decoder)}B@0xE100 + WIN {len(winzx0)}B@0x{WINADDR:X}  (was deck 15744B raw)")
+      f"SCREEN${len(loadscr)}B@0x4000 + silent CODE {len(code)}B@0x8000 + TITLE {len(title)}B + TITLE2 {len(title2)}B@0x6000 + DECK {len(deck)}B@0xC000")
