@@ -3578,8 +3578,13 @@ CaptureZipOld:
     jr nz,.cap                   ; captured -> not a survivor
     ld hl,ZipCur
     ld a,(ZipStep)
-    call addHLA                  ; preserves DE
-    ld (hl),d                    ; ZipCur[k] = current column
+    call addHLA                  ; HL = &ZipCur[k], preserves DE
+    ld a,d                       ; clamp the recorded start column to 25 to MATCH RenderShadow's draw
+    cp 26                        ; clamp (the Harlequin col-31 fix). Otherwise the rightmost survivor's
+    jr c,.zcok                   ; recorded start (unclamped 26) sits one char RIGHT of where the card
+    ld a,25                      ; is actually drawn (25), so the slide's first frame nudges it right
+.zcok:                           ; before pulling it left to re-pack.
+    ld (hl),a                    ; ZipCur[k] = clamped current column
     ld hl,ZipStep
     inc (hl)
 .cap:
@@ -4080,8 +4085,13 @@ FillZipCols:
 .f:
     ld hl,ZipCur
     ld a,e
-    call addHLA                  ; preserves BC, DE
-    ld (hl),d
+    call addHLA                  ; HL = &ZipCur[k], preserves BC, DE
+    ld a,d                       ; clamp the recorded column to 25 (match RenderShadow's draw clamp,
+    cp 26                        ; so a full-table drop doesn't nudge the rightmost card right first)
+    jr c,.fc
+    ld a,25
+.fc:
+    ld (hl),a
     ld a,d
     add a,c
     ld d,a
