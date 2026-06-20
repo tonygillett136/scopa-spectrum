@@ -53,6 +53,8 @@ Tmp0:     defs 1
 Tmp1:     defs 1
 Tmp2:     defs 1                  ; BandRows char-row counter (LDIR clobbers BC -> needs RAM)
 Removed:  defs 1                  ; cards removed by the play just resolved (ace sweep => 5+)
+TapeFlag: defs 1                  ; 1 = the tape loader ran (set by it before jp 0x8000); a snapshot
+                                  ; load leaves it 0 -> boot does a brief min-display hold only then
 BlitCrow: defs 1                  ; BlitCard/EraseCardRegion char-row counter (LDI clobbers BC)
 Options:  defs 32
 OptionN:  defs 1
@@ -1561,9 +1563,11 @@ FM37:                            ; play one full match -> A = winner (0 = player
     ld a,(23672)
     ld (Seed+1),a
     ld b,6
-    ; (no min-display hold here any more -- the tape loader holds the popped-in loading screen ~2s,
-    ;  which is swamped on a slow tape but gives an instant DivMMC load time to show it; a tape boot
-    ;  has already shown the loading screen for the whole load, so it goes straight to the title.)
+    ld a,(TapeFlag)              ; min-display hold ONLY on an instant (snapshot) load -- a tape boot
+    or a                         ; already showed the loading screen for the whole load, so skip it
+    call z,Delay                 ; (the tape loader does NOT hold mid-load: that would desync the tape
+                                 ;  -- a continuously-playing TZXDuino/tape streams the next block past
+                                 ;  the Spectrum while it waits. So the conditional hold lives here.)
     call ShowTitle               ; show the title ONCE at boot (its ZX0 source @0x6000 is intact only now)
     jp NewGame                   ; -> skill menu -> match
     ENDIF

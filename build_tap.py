@@ -39,29 +39,31 @@ def sym(name):                             # read a label's address from the ass
             return int(re.search(r"0x[0-9A-Fa-f]+",ln).group(),16)
     raise SystemExit(f"{name} not found in scopa.sym -- assemble first")
 DZX0=sym("dzx0_standard")                   # the 68B ZX0 decoder lives inside decoder.bin (@0xE100..)
+TAPEFLAG=sym("TapeFlag")                     # loader sets this to 1 so the game skips its boot hold
 
 # ---- tiny ML loader (POKEd to the printer buffer @23296) ----
 # Loads everything SILENTLY via ROM LD-BYTES (0x0556). The loading screen is ZX0-packed: load the
 # decoder (which contains dzx0) FIRST, stream the compressed screen into a scratch buffer @0x6000,
-# decode it onto 0x4000 (a clean POP-IN), then hold ~2s so an instant DivMMC load still shows it --
-# on a slow tape that hold is swamped by the rest of the load, so there's no end-of-load pause
-# (the game's own end-of-boot hold is removed too). No "Bytes:" messages, no LOAD SCREEN$ build-up.
+# decode it onto 0x4000 (a clean POP-IN), then load the rest CONTINUOUSLY and jump to the game.
+# CRITICAL: the loader must NEVER pause between blocks -- a continuously-playing tape/TZXDuino
+# streams the next block past the Spectrum while it waits, desyncing the load. So there's no hold
+# here; instead it sets TapeFlag=1 (the game then skips its boot min-display hold -- a snapshot
+# load leaves the flag 0 and gets the brief hold). No "Bytes:" messages, no LOAD SCREEN$ build-up.
 def w16(n): return [n & 0xFF, (n >> 8) & 0xFF]
 def ldbytes(dest, length):
     # ld ix,dest : ld de,length : ld a,0xFF : scf : call 0x0556
     return [0xDD,0x21]+w16(dest)+[0x11]+w16(length)+[0x3E,0xFF,0x37,0xCD,0x56,0x05]
-HOLD=100                                                  # frames to hold the popped-in screen (~2s @50Hz)
 LOADER = ([0xF3]                                          # di
           + [0x21,0x00,0x58, 0x11,0x01,0x58, 0x01,0xFF,0x02, 0x36,0x00, 0xED,0xB0]  # blank attrs 0x5800.. black
           + ldbytes(0xE100, len(decoder))                 # decoder (incl. dzx0) FIRST
           + ldbytes(0x6000, len(loadzx0))                 # compressed loading screen -> scratch @0x6000
           + [0x21,0x00,0x60, 0x11,0x00,0x40] + [0xCD]+w16(DZX0)  # ld hl,0x6000:ld de,0x4000:call dzx0 -> POP-IN
-          + [0xFB, 0x06,HOLD, 0x76, 0x10,0xFD, 0xF3]       # ei : ld b,HOLD : (halt:djnz $-1) : di
           + ldbytes(0x8000, len(code))
           + ldbytes(0x6000, len(title))                   # title overwrites the loading.zx0 scratch
           + ldbytes(0x6000+len(title), len(title2))
           + ldbytes(0xC000, len(deck))
           + ldbytes(WINADDR, len(winzx0))
+          + [0x3E,0x01, 0x32]+w16(TAPEFLAG)               # ld a,1 : ld (TapeFlag),a -> "loaded from tape"
           + [0xC3,0x00,0x80])                             # jp 0x8000
 LADDR = 23296
 LEND  = LADDR + len(LOADER) - 1
