@@ -3601,11 +3601,12 @@ ZipCompact:
     ld a,(TableN)
     or a
     jr nz,.havesurv
-    ; --- full sweep: a capture emptied the table. A small clear (<5 cards) the next PaintAll
-    ; redraws tear-free; a big ace-sweep (5+) overwhelms the ahead-of-beam delta and tears
-    ; ~3/4 of the way down -> clear the (now-blank) table band BEHIND the beam instead. ---
+    ; --- full sweep: a capture emptied the table. A 1-2 card clear the next PaintAll redraws
+    ; tear-free; a 3+ removal overruns the ahead-of-beam delta and tears ~3/4 down -> cascade
+    ; them off one per frame instead. (Tony's CRT: a 4-card ace-take still tore at the old >=5
+    ; cutoff -- the beam catches the delta from ~3 cards up, so the threshold is 3.) ---
     ld a,(Removed)
-    cp 5
+    cp 3
     ret c
     call RenderShadow            ; shadow = the board with the table now empty
     call RemoveCascade           ; erase the taken cards one per frame -> tear-free everywhere
@@ -3625,9 +3626,9 @@ ZipCompact:
     ld (HideTable),a
     call DrawZipCards
     ld a,(Removed)
-    cp 5
-    jr c,.smalldelta             ; few cards taken -> the ahead-of-beam delta stays clear of the beam
-    call RemoveCascade           ; big removal -> erase the taken cards one per frame (tear-free)
+    cp 3
+    jr c,.smalldelta             ; <=2 taken -> the ahead-of-beam delta stays clear of the beam
+    call RemoveCascade           ; 3+ removed -> erase the taken cards one per frame (tear-free)
     jr .beatdone
 .smalldelta:
     xor a
