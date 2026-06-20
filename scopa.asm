@@ -457,6 +457,32 @@ Start:
 .h53:
     jr .h53
     ENDIF
+    IF TESTMODE == 54
+    ; crowded-flash-bleed probe: 6-card table (rightmost clamps 26->25), flash index 4 (the card
+    ; whose right neighbour is the clamped card). Dump attr row 8: col 25 must stay 0x78 (card 5's
+    ; left edge), NOT 0xF8 -- i.e. the flash of card 4 must end at col 24.
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),1
+    inc hl
+    ld (hl),11
+    inc hl
+    ld (hl),12
+    inc hl
+    ld (hl),13                   ; index 4
+    inc hl
+    ld (hl),14                   ; index 5 (rightmost -> drawn clamped at col 25)
+    ld a,6
+    ld (TableN),a
+    xor a
+    ld (ScrOfs),a
+    call PaintAll                ; draw the 6 cards (overlapped)
+    ld a,4
+    call FlashTableCard          ; flash index 4 only
+.h54:
+    jr .h54
+    ENDIF
     IF TESTMODE == 13
     ; engine pitch check: play an ascending C-major scale, then hang
     di
@@ -6726,14 +6752,23 @@ FlashTableCard:
     jr c,.colok
     ld a,25                      ; clamp to 25 -- MUST match the clamped DRAW (RenderShadow /
 .colok:                          ; DrawPlayedCard), and keeps col 31 felt (Harlequin edge-bleed)
-    ld d,a                       ; D = col
-    ; width = (index < TableN-1) ? step : 6
+    ld d,a                       ; D = clamped col of THIS card
+    ; width: last/played card -> full 6; an overlapped card -> the gap to the NEXT card's
+    ; CLAMPED column. Do NOT assume the nominal step: at TableN=6 the rightmost card is clamped
+    ; one column LEFT (26->25, the Harlequin edge fix), so its left-neighbour's visible width is
+    ; step-1. Flashing the full step would bleed the flash onto the obscured left strip of the
+    ; card to its right (Tony's CRT, crowded-table capture).
     ld a,(TableN)
     dec a
     cp c
     jr c,.w6                     ; index past last (the played card) -> full 6
     jr z,.w6                     ; index == last -> full 6
-    ld a,e                       ; else only the visible (left) step columns
+    ld a,c
+    inc a                        ; index+1
+    push de                      ; preserve D (this card's col); E (step) unused hereafter
+    call TableSlotCol            ; A = the NEXT card's clamped column (same clamp as the draw)
+    pop de
+    sub d                        ; width = nextcol - thiscol (= step, or step-1 if next was clamped)
     jr .gotw
 .w6:
     ld a,6
