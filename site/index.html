@@ -189,10 +189,16 @@
       machine: 48,
       zoom: 2,
       sandbox: true,
-      autoStart: false,
+      // autoStart: run the CPU immediately. With autoStart:false the emulator sits PAUSED
+      // (the keyboard handler is detached while paused), so keypresses are silently dropped
+      // until the user finds the Play button -- the recurring "keyboard dead" report.
+      autoStart: true,
       // snapshot taken at the title (the tape's silent multi-stage loader doesn't
       // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
-      openUrl: (Math.random() < 0.5 ? 'scopa.z80' : 'scopa2.z80')
+      // NB JSSpeccy picks the loader by file EXTENSION, so a ?v= query breaks it
+      // ("Unrecognised file type"); to bust a stale cached snapshot after a recapture,
+      // bump the filename suffix (play-a2.z80, ...) instead of a query string.
+      openUrl: (Math.random() < 0.5 ? 'play-a.z80' : 'play-b.z80')
     });
     // Keyboard: JSSpeccy listens for keys on its own container (tabindex) and maps by
     // e.keyCode — NOT the document. After the Play click, focus can drift to <body>, so
