@@ -23,36 +23,51 @@ def block(flag,data):
 def header(typ,name,length,p1,p2):
     return block(0,bytes([typ])+name.encode()[:10].ljust(10)+length.to_bytes(2,'little')+p1.to_bytes(2,'little')+p2.to_bytes(2,'little'))
 
-loadscr=open("loading.scr","rb").read()    # 0x4000 (shown during load)
+loadzx0=open("loading.zx0","rb").read()    # ZX0-packed loading screen -> decoded to 0x4000 at boot
 code=open("scopa_code.bin","rb").read()    # 0x8000
 title=open("title.zx0","rb").read()        # 0x6000 (ZX0-packed; decoded to 0x4000 at boot)
 title2=open("title2.zx0","rb").read()      # 0x6000+len(title) (second rotating title screen)
 deck=open("deck_zx0.bin","rb").read()      # 0xC000  (ZX0-COMPRESSED deck + index)
-decoder=open("decoder.bin","rb").read()    # 0xE100  (decoder + cache code + CacheIds=0xFF)
+decoder=open("decoder.bin","rb").read()    # 0xE100  (decoder + dzx0 + cache code + CacheIds=0xFF)
 winzx0=open("win_zx0.bin","rb").read()     # 0xF20A  (ZX0 VINCITORE screen; = CacheBase + CACHEN*384)
 WINADDR=0xF20A                             # past the 10-slot card cache; ShowWinYou unpacks it to 0x4000
 
+import re
+def sym(name):                             # read a label's address from the assembler symbol file
+    for ln in open("scopa.sym"):
+        if ln.split(":",1)[0].strip()==name:
+            return int(re.search(r"0x[0-9A-Fa-f]+",ln).group(),16)
+    raise SystemExit(f"{name} not found in scopa.sym -- assemble first")
+DZX0=sym("dzx0_standard")                   # the 68B ZX0 decoder lives inside decoder.bin (@0xE100..)
+
 # ---- tiny ML loader (POKEd to the printer buffer @23296) ----
-# Loads code/title/deck SILENTLY via ROM LD-BYTES (0x0556) -> NO "Bytes:" messages
-# over the loading screen, then jumps to the game at 0x8000.
+# Loads everything SILENTLY via ROM LD-BYTES (0x0556). The loading screen is ZX0-packed: load the
+# decoder (which contains dzx0) FIRST, stream the compressed screen into a scratch buffer @0x6000,
+# decode it onto 0x4000 (a clean POP-IN), then hold ~2s so an instant DivMMC load still shows it --
+# on a slow tape that hold is swamped by the rest of the load, so there's no end-of-load pause
+# (the game's own end-of-boot hold is removed too). No "Bytes:" messages, no LOAD SCREEN$ build-up.
 def w16(n): return [n & 0xFF, (n >> 8) & 0xFF]
 def ldbytes(dest, length):
     # ld ix,dest : ld de,length : ld a,0xFF : scf : call 0x0556
     return [0xDD,0x21]+w16(dest)+[0x11]+w16(length)+[0x3E,0xFF,0x37,0xCD,0x56,0x05]
-LOADER = ([0xF3]                                   # di
+HOLD=100                                                  # frames to hold the popped-in screen (~2s @50Hz)
+LOADER = ([0xF3]                                          # di
+          + [0x21,0x00,0x58, 0x11,0x01,0x58, 0x01,0xFF,0x02, 0x36,0x00, 0xED,0xB0]  # blank attrs 0x5800.. black
+          + ldbytes(0xE100, len(decoder))                 # decoder (incl. dzx0) FIRST
+          + ldbytes(0x6000, len(loadzx0))                 # compressed loading screen -> scratch @0x6000
+          + [0x21,0x00,0x60, 0x11,0x00,0x40] + [0xCD]+w16(DZX0)  # ld hl,0x6000:ld de,0x4000:call dzx0 -> POP-IN
+          + [0xFB, 0x06,HOLD, 0x76, 0x10,0xFD, 0xF3]       # ei : ld b,HOLD : (halt:djnz $-1) : di
           + ldbytes(0x8000, len(code))
-          + ldbytes(0x6000, len(title))
-          + ldbytes(0x6000+len(title), len(title2))   # second title screen, right after the first
+          + ldbytes(0x6000, len(title))                   # title overwrites the loading.zx0 scratch
+          + ldbytes(0x6000+len(title), len(title2))
           + ldbytes(0xC000, len(deck))
-          + ldbytes(0xE100, len(decoder))          # decoder + cache code (the freed region)
-          + ldbytes(WINADDR, len(winzx0))          # VINCITORE screen, above the card cache
-          + [0xC3,0x00,0x80])                      # jp 0x8000
+          + ldbytes(WINADDR, len(winzx0))
+          + [0xC3,0x00,0x80])                             # jp 0x8000
 LADDR = 23296
 LEND  = LADDR + len(LOADER) - 1
 
-# ---- BASIC: show the screen, poke the loader, run it ----
+# ---- BASIC: poke the loader, run it (no LOAD SCREEN$ -> the loader pops the screen in itself) ----
 prog  = line(10, [('k','CLEAR'),('n',32767)],
-                 [('k','LOAD'),('s',''),('k','SCREEN$')],          # artwork -> 0x4000 (shown)
                  [('k','RESTORE'),('n',100)],
                  [('k','FOR'),('r','n'),('r','='),('n',LADDR),('k','TO'),('n',LEND)],
                  [('k','READ'),('r','a')],[('k','POKE'),('r','n'),('r',','),('r','a')],[('k','NEXT'),('r','n')],
@@ -63,16 +78,16 @@ for i,b in enumerate(LOADER):
     dspec.append(('n',b))
 prog += line(100, dspec)
 
-# ---- tape: BASIC + headered SCREEN$, then HEADERLESS code/title/deck (silent) ----
+# ---- tape: BASIC (headered), then HEADERLESS blocks in LOAD order (decoder first -> dzx0 ready) ----
 tap  = header(0,"scopa",len(prog),10,len(prog))+block(0xFF,prog)
-tap += header(3,"scopaload",len(loadscr),0x4000,0x8000)+block(0xFF,loadscr)
-tap += block(0xFF,code)     # headerless -> loaded by the ML loader
+tap += block(0xFF,decoder)     # headerless -> loaded by the ML loader (dzx0 needed before the screen)
+tap += block(0xFF,loadzx0)
+tap += block(0xFF,code)
 tap += block(0xFF,title)
 tap += block(0xFF,title2)
 tap += block(0xFF,deck)
-tap += block(0xFF,decoder)
 tap += block(0xFF,winzx0)
 open("scopa.tap","wb").write(tap)
 print(f"scopa.tap = {len(tap)} bytes | BASIC {len(prog)}B (loader {len(LOADER)}B@{LADDR}) + "
-      f"SCREEN${len(loadscr)}B@0x4000 + CODE {len(code)}B@0x8000 + TITLE {len(title)}+{len(title2)}B@0x6000 + "
-      f"ZX0-DECK {len(deck)}B@0xC000 + DECODER {len(decoder)}B@0xE100 + WIN {len(winzx0)}B@0x{WINADDR:X}  (was deck 15744B raw)")
+      f"DECODER {len(decoder)}B@0xE100 + LOAD-ZX0 {len(loadzx0)}B(pop-in) + CODE {len(code)}B@0x8000 + "
+      f"TITLE {len(title)}+{len(title2)}B@0x6000 + ZX0-DECK {len(deck)}B@0xC000 + WIN {len(winzx0)}B@0x{WINADDR:X}")

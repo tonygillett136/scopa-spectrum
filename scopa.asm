@@ -1561,8 +1561,10 @@ FM37:                            ; play one full match -> A = winner (0 = player
     ld a,(23672)
     ld (Seed+1),a
     ld b,6
-    call Delay                   ; hold the loading screen >= ~3s (min display)
-    call ShowTitle               ; show the title ONCE at boot (its RLE source @0x6000 is intact only now)
+    ; (no min-display hold here any more -- the tape loader holds the popped-in loading screen ~2s,
+    ;  which is swamped on a slow tape but gives an instant DivMMC load time to show it; a tape boot
+    ;  has already shown the loading screen for the whole load, so it goes straight to the title.)
+    call ShowTitle               ; show the title ONCE at boot (its ZX0 source @0x6000 is intact only now)
     jp NewGame                   ; -> skill menu -> match
     ENDIF
 
