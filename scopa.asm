@@ -3602,7 +3602,7 @@ ZipCompact:
     cp 5
     ret c
     call RenderShadow            ; shadow = the board with the table now empty
-    call ClearTableBehind        ; copy the blank band to the screen behind the raster
+    call RemoveCascade           ; erase the taken cards one per frame -> tear-free everywhere
     xor a
     ld (ScrOfs),a
     ret
@@ -3621,8 +3621,8 @@ ZipCompact:
     ld a,(Removed)
     cp 5
     jr c,.smalldelta             ; few cards taken -> the ahead-of-beam delta stays clear of the beam
-    call ClearTableBehind        ; big removal -> clear the taken cards behind the beam (also the beat
-    jr .beatdone                 ;                pause: ClearTableBehind already spans two frames)
+    call RemoveCascade           ; big removal -> erase the taken cards one per frame (tear-free)
+    jr .beatdone
 .smalldelta:
     xor a
     ld (DBstart),a               ; TEAR-FREE removal: delta-blit only the taken cards' cells
@@ -3948,97 +3948,90 @@ BlitSlice:
     ei
     ret
 
-; ===== behind-the-beam table-band clear ========================================================
-; Copy the whole table band (char-rows 8..15, full 32-col width) from the shadow buffer to the
-; screen while the raster is BELOW each half, so a large change (5+ cards swept by an ace) does
-; not tear. A single ahead-of-beam copy of this size is ~3.5 char-rows too slow and tears ~3/4 of
-; the way down (Tony's CRT "horizontal catch"). Splitting it across two frames -- rows 8..11 once
-; the beam has cleared row 11, rows 12..15 once it has cleared row 15 -- gives each half a ~30k T
-; post-beam margin before the raster returns, so it is immune to ULA-contention timing drift.
-; The spin loop is register-only (code in uncontended upper RAM) so its timing is exact.
-; Costs ~2 extra frames vs the delta path -- invisible for a once-per-capture sweep.
-DLY_ROW12 equ 1430               ; ~37.2k T after the interrupt : just past char-row 11 (beam 35.8k)
-DLY_ROW16 equ 1700               ; ~44.2k T after the interrupt : just past char-row 15 (beam 43.0k)
-ClearTableBehind:
-    halt                         ; sync to the interrupt -> raster at the top border
-    di
-    ld bc,DLY_ROW12
-    call SpinBC                  ; wait until the beam has passed char-row 11
-    ld a,8
-    call BandRows4               ; copy char-rows 8..11, now safely behind the beam
-    ei
-    halt
-    di
-    ld bc,DLY_ROW16
-    call SpinBC                  ; wait until the beam has passed char-row 15
-    ld a,12
-    call BandRows4               ; copy char-rows 12..15
-    ei
-    ret
-
-SpinBC:                          ; burn ~26*BC T-states (register-only -> uncontended, predictable)
-    dec bc
+; ===== one-card-per-frame removal (the tear-free ace-sweep clear) ==============================
+; A 5+ card removal (an ace sweeping the table) changes the whole table band at once -- too much
+; to redraw ahead of the beam, so a one-shot clear tears ~3/4 down. The previous behind-the-beam
+; clear relied on a calibrated raster delay that real ULAs (the Harlequin) don't honour, so it
+; still tore there. Instead, erase the taken cards ONE PER FRAME -- the R41 deal cascade in
+; reverse: each frame restores just ONE card's 6x8 cells from the shadow (felt, or an overlapping
+; survivor), small enough to finish in the top border ahead of the raster, so every frame is
+; tear-free by the same proven single-card path -- with NO hardware-specific timing. Tony's idea.
+; Pre: the shadow already holds the post-removal board (taken cards blank, survivors at old cols).
+RemoveCascade:
+    ld a,(TableN)                ; oldN = newN + Removed
+    ld b,a
+    ld a,(Removed)
+    add a,b
+    ld (Tmp2),a                  ; Tmp2 = oldN (loop bound)
+    ld (TableN),a                ; temporarily -> TableStep reads (TableN)
+    call TableStep               ; A = the column step of the PRE-removal layout
+    ld (Tmp1),a                  ; Tmp1 = step_old
     ld a,b
-    or c
-    jr nz,SpinBC
-    ret
-
-; BandRows4: copy 4 char-rows starting at char-row A, full 32-col width, shadow(+0x2000)->screen.
-BandRows4:
-    ld (Tmp0),a                  ; Tmp0 = current char-row
-    ld a,4
-    ld (Tmp2),a                  ; Tmp2 = char-rows remaining
-.brrow:
-    ld a,(Tmp0)                  ; HL = screen addr of (row, col 0), pixel line 0
-    and 0x18
-    or 0x40
-    ld h,a
+    ld (TableN),a                ; restore newN
+    xor a
+    ld (Tmp0),a                  ; Tmp0 = index = 0
+.loop:
     ld a,(Tmp0)
-    and 7
-    rrca
-    rrca
-    rrca
-    ld l,a
-    ld a,8
-    ld (Tmp1),a                  ; 8 pixel lines per char-row
-.brline:
-    push hl
-    ld d,h
-    ld e,l                       ; DE = screen dst
-    ld a,h
-    add a,0x20
-    ld h,a                       ; HL = shadow src (screen + 0x2000)
-    ld bc,32
-    ldir                         ; one full-width pixel line
-    pop hl
-    inc h                        ; next pixel line within the char-row
-    ld a,(Tmp1)
-    dec a
-    ld (Tmp1),a
-    jr nz,.brline
-    ld a,(Tmp0)                  ; attr row: 0x5800 + row*32, 32 cells
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld a,h
-    add a,0x58
-    ld h,a                       ; HL = screen attr (row, col 0)
-    ld d,h
-    ld e,l
-    ld a,h
-    add a,0x20
-    ld h,a                       ; HL = shadow attr
-    ld bc,32
-    ldir
-    ld hl,Tmp0
-    inc (hl)                     ; next char-row
     ld hl,Tmp2
-    dec (hl)
-    jr nz,.brrow
+    cp (hl)
+    jr nc,.done                  ; index >= oldN -> all taken cards gone
+    ld hl,CapSel                 ; was this slot captured?
+    ld a,(Tmp0)
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.next                   ; survivor -> leave it in place
+    ld a,(Tmp1)                  ; col = 1 + step_old*index, clamped to 25 (Harlequin col-31 edge)
+    ld d,a
+    ld a,(Tmp0)
+    ld e,a
+    ld a,1
+    inc e
+.cm:
+    dec e
+    jr z,.cmd
+    add a,d
+    jr .cm
+.cmd:
+    cp 26
+    jr c,.cok
+    ld a,25
+.cok:
+    ld d,a                       ; D = col
+    ld e,8                       ; E = char-row 8 (table band top)
+    halt                         ; one-card erase finishes ahead of the beam -> tear-free
+    call EraseCardRegion         ; restore shadow (felt / overlapping survivor) -> card vanishes
+.next:
+    ld hl,Tmp0
+    inc (hl)
+    jr .loop
+.done:
+    ; A non-crowded capture (RevealInPlace=0) drew the played card on the table at the far slot
+    ; (index oldN) via ShowCapture; it's gone to the pile now, so erase that slot too. A crowded
+    ; capture kept it flashing in the hand -> nothing extra on the table band.
+    ld a,(RevealInPlace)
+    or a
+    ret nz
+    ld a,(Tmp1)                  ; col = 1 + step_old*oldN, clamped 25
+    ld d,a
+    ld a,(Tmp2)
+    ld e,a
+    ld a,1
+    inc e
+.pcm:
+    dec e
+    jr z,.pcmd
+    add a,d
+    jr .pcm
+.pcmd:
+    cp 26
+    jr c,.pcok
+    ld a,25
+.pcok:
+    ld d,a
+    ld e,8
+    halt
+    call EraseCardRegion
     ret
 
 ; DrawZipCards: draw each surviving table card (Table[k]) at column ZipCur[k], row 8,
