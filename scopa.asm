@@ -18,8 +18,8 @@ FASTSIM = 1
     ENDIF
 ; ---- state ----
 ; State block (code ceiling). Slid up to 0xB700 to hand code room for the Esperto card-counting AI
-; (endgame minimax), the deal cascade, the shift-before-zip drop, and the behind-the-beam ace-sweep
-; clear (ClearTableBehind). State uses ~0x230B (ends ~0xB92F); stack at 0xBFF0 leaves ~1.7KB below
+; (endgame minimax), the deal cascade, the shift-before-zip drop, and the one-card-per-frame ace-sweep
+; removal (RemoveCascade). State uses ~0x230B (ends ~0xB92F); stack at 0xBFF0 leaves ~1.7KB below
 ; it for the stack + the minimax search frames (the minimax node frames are pre-allocated in state).
     ORG 0xB700
 Deck:     defs 40
@@ -3937,27 +3937,6 @@ ZMSupd:
     ld (hl),a
     ret
 
-; ZipSnap: set every survivor's ZipCur[k] straight to its target column (1 + ZipStep*k).
-ZipSnap:
-    ld a,(TableN)
-    ld b,a
-    ld a,(ZipStep)
-    ld c,a
-    ld d,1
-    ld e,0
-.zsn:
-    ld hl,ZipCur
-    ld a,e
-    call addHLA
-    ld a,d
-    ld (hl),a
-    ld a,d
-    add a,c
-    ld d,a
-    inc e
-    djnz .zsn
-    ret
-
 ; BlitSlice: HALT, then copy columns [ZipSliceC0 .. 31] of the table band (char-rows 8..15)
 ; from the shadow buffer to the screen, raster-order, per char-row LDIR. Small enough (the
 ; slice is <=16 cols) to finish ahead of the descending beam -> tear-free re-pack frame.
@@ -4311,15 +4290,6 @@ findAllCaptures:
     or a
     sbc hl,de
     jr c,.ml
-    ret
-
-; CanCapture: A=value -> A=1 if any capture exists, else 0
-CanCapture:
-    call findAllCaptures
-    ld a,(OptionN)
-    or a
-    ret z
-    ld a,1
     ret
 
 ; BitMask: A=bit index -> DE = 1<<A
@@ -5186,7 +5156,7 @@ PickTitle:
 ShowTitle:
     call PickTitle               ; pick a title at random (2-screen rotation)
     ld (CurTitle),hl
-    call DecompressScr           ; expand the chosen SCOMPACT-packed title onto the screen (0x4000)
+    call DecompressScr           ; expand the chosen ZX0-packed title onto the screen (0x4000)
     call PlayTitleMusic          ; A: 0=finished, 1=SPACE(skip->game), 2=H(help)
     cp 1
     ret z                        ; SPACE during music -> straight to the game
@@ -5815,9 +5785,6 @@ WaitWinner:
 TriCol: defb 4,7,2,7             ; green, white, red, white
 
 StrScopa:  defb "S C O P A",0
-StrSub:    defb "ANGELO'S CARD GAME",0
-StrKeys:   defb "O / P  MOVE    SPACE  PLAY",0
-StrStart:  defb "PRESS SPACE TO START",0
 StrHdr:    defb "YOU   CPU",0
 StrCarte:  defb "CARTE",0
 StrDen:    defb "DENARI",0
@@ -5828,9 +5795,7 @@ StrNapola: defb "NEAPOLITAN",0           ; results-screen label (the big banner 
 StrPalle:  defb "PALLE CANE",0
 StrRound:  defb "ROUND",0
 StrMatch:  defb "MATCH",0
-StrYouBig:   defb "YOU WIN",0
 StrCpuBig:   defb "CPU WINS",0
-StrCampione: defb "- CAMPIONE! -",0
 StrUnlucky:  defb "BETTER LUCK NEXT TIME",0
 StrFinal:    defb "FINAL SCORE",0
 StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
@@ -6397,7 +6362,7 @@ HandCol:
 .d:
     ret
 
-; TableSlotCol: A=table index -> A = column (1 + TableStep*index), clamped <=26
+; TableSlotCol: A=table index -> A = column (1 + TableStep*index), clamped <=25 (Harlequin col-31)
 TableSlotCol:
     ld c,a
     call TableStep
@@ -6854,7 +6819,7 @@ FlashTableCard:
     ret
 
 ; DrawPlayedCard: draw (Played) at the table slot just past the table cards (col
-; 1+step*TableN, clamped to 26, row 8) -- exactly where the slide left it. Shared by the
+; 1+step*TableN, clamped to 25, row 8) -- exactly where the slide left it. Shared by the
 ; capture-choice paint AND ShowCapture so the played card stays put and visible all the way
 ; from slide -> choose -> capture (it isn't in Table[] yet because a capture never lands it
 ; on the table, so PaintAll alone would leave it nowhere).
@@ -7051,7 +7016,6 @@ BlitBanner:
 
 StrCPU:      defb "CPU",0
 StrYOU:      defb "YOU",0
-StrScopaBang: defb "SCOPA!",0
 
 ; BlitCard: A=cardid, D=col, E=row
 ; INTERLEAVED per char-row: each char-row's 8 pixel lines are followed immediately by that
@@ -7353,7 +7317,7 @@ ScopaFlag:
 CodeEnd:
     ; Compressed title parked in the shadow-buffer region: ShowTitle expands it to the
     ; screen at boot, then the first gameplay frame reuses 0x6000 as the shadow buffer.
-    ; This frees the whole 0x9400 region (code can now grow up to the state block @0xB000).
+    ; This frees the whole 0x9400 region (code can now grow up to the state block @0xB700).
     ORG 0x6000
 TitleRle:
     INCBIN "title.zx0"           ; screen 1: Ace of Swords (ZX0; decoded once at boot by DecompressScr)
