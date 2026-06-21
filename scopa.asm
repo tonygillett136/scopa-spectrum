@@ -1666,7 +1666,7 @@ RunMatch:
     jr z,.round                  ; tie at/over 11 -> another round
     jr nc,.pwon
     call ShowWinOpp
-    call WaitSpaceOrDemo
+    call WaitEndOrDemo            ; SPACE plays again; 60s idle -> attract demo
     ld a,0xFE                    ; hidden: hold SHIFT at the play-again prompt -> back to the title menu
     in a,(0xFE)                  ; read the CAPS-SHIFT half-row (0xFEFE)
     bit 0,a                      ; CAPS SHIFT: 0 = pressed
@@ -1716,6 +1716,24 @@ DemoCheckSpace:
     xor a
     ld (DemoMode),a
     jp NewGame                   ; -> skill menu, ready for the human
+
+; CheckSoftReset: CAPS SHIFT + SYMBOL SHIFT + SPACE held together -> abandon the game and drop
+; to the skill menu (difficulty choice). Polled from ReadKeys (every input poll) and the pacing
+; Delay (during animations), so the combo is caught anywhere in a game. Returns (clobbering A
+; only) when the combo is NOT held.
+CheckSoftReset:
+    ld a,0xFE
+    in a,(0xFE)                  ; 0xFEFE half-row: CAPS SHIFT = bit 0 (0 = pressed)
+    bit 0,a
+    ret nz                       ; CAPS not held -> not the combo
+    ld a,0x7F
+    in a,(0xFE)                  ; 0x7FFE half-row: SPACE = bit 0, SYMBOL SHIFT = bit 1
+    and 3
+    ret nz                       ; need BOTH SPACE + SYM SHIFT held too
+    ld sp,0xBFF0                 ; combo -> reset stack and return to the skill menu
+    xor a
+    ld (DemoMode),a
+    jp NewGame
 
 ; WaitSpaceOrDemo: in the demo, hold the screen ~10s (SPACE exits via DemoCheckSpace) then
 ; return so the demo plays on; otherwise behave exactly like WaitSpace.
@@ -4809,6 +4827,7 @@ CountHand:
 
 ; =================== input ===================
 ReadKeys:
+    call CheckSoftReset          ; CAPS+SYM+SPACE held -> back to the skill menu (never returns)
     xor a
     ld (Keys),a
     ld bc,0xDFFE
@@ -4857,6 +4876,7 @@ Delay:
     ret nz                       ; bias sim: no waiting
     ENDIF
     call DemoCheckSpace          ; demo: a SPACE in any pause drops back to the menu (clobbers A only)
+    call CheckSoftReset          ; CAPS+SYM+SPACE during an animation -> skill menu (never returns)
 .d1:
     ld de,0
 .d2:
@@ -5762,6 +5782,9 @@ WaitWinner:
     call ReadKeys
     or a
     jr nz,WaitWinner             ; drain any held keys first
+    ei                           ; ensure the 50 Hz interrupt is ticking the idle timer
+    ld hl,0
+    ld (23672),hl                ; reset the 60s "no SPACE -> attract demo" timer
     ld c,0
 .w:
     ld a,c
@@ -5779,13 +5802,53 @@ WaitWinner:
     jr nz,.d
     call ReadKeys
     bit 2,a
-    jr z,.w
+    jr nz,.gotsp                 ; SPACE -> play again
+    ld hl,(23672)                ; no SPACE for 60s -> drop into the attract demo
+    ld de,3000                   ; 60s @ 50 Hz
+    or a
+    sbc hl,de
+    jr c,.w                      ; under 60s -> keep shimmering
+    ld sp,0xBFF0                 ; idle timeout -> demo (reset stack; never returns)
+    xor a
+    out (254),a
+    jp EnterDemo
+.gotsp:
     xor a
     out (254),a                  ; restore black border
 .fin:
     call ReadKeys
     or a
     jr nz,.fin
+    ret
+
+; WaitEndOrDemo: the opponent-win (lose) end screen wait. SPACE returns (to play-again handling);
+; 60s with no SPACE drops into the attract demo. (The round-scores screen keeps WaitSpaceOrDemo,
+; which has no idle timeout -- you only fall into the demo from a match-END screen.)
+WaitEndOrDemo:
+    ld a,(DemoMode)
+    or a
+    jp nz,WaitSpaceOrDemo        ; in the demo itself, the normal ~10s hold
+    call ReadKeys
+    or a
+    jr nz,WaitEndOrDemo          ; drain any held keys first
+    ei
+    ld hl,0
+    ld (23672),hl
+.l:
+    call ReadKeys
+    bit 2,a
+    jr nz,.go                    ; SPACE -> return
+    ld hl,(23672)
+    ld de,3000                   ; 60s @ 50 Hz
+    or a
+    sbc hl,de
+    jr c,.l
+    ld sp,0xBFF0                 ; idle timeout -> demo (never returns)
+    jp EnterDemo
+.go:
+    call ReadKeys
+    or a
+    jr nz,.go                    ; wait for release
     ret
 TriCol: defb 4,7,2,7             ; green, white, red, white
 
