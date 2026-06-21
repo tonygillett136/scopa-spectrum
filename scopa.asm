@@ -562,6 +562,25 @@ Start:
 .h55:
     jr .h55
     ENDIF
+    IF TESTMODE == 56
+    ; steady-border proof: cyan border + a continuous tone through PlaySamples. A save-screen
+    ; (border included) must show a CYAN border throughout -- it was BLACK before the fix.
+    ld a,5
+    out (254),a
+    ld (BorderC),a               ; cyan, as in a real game
+    di
+    ld hl,0
+    ld (Acc1),hl
+    ld (Acc2),hl
+    ld hl,500
+    ld (Inc1),hl                 ; a mid melody tone
+    ld hl,0
+    ld (Inc2),hl                 ; bass silent
+.h56:
+    ld de,0                      ; 65536 samples (~2.6s) then repeat -> a continuous note
+    call PlaySamples
+    jr .h56
+    ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
     ; never overlap a table card). Two 7s + a spare on the table; the played 7 sits in hand.
@@ -7277,6 +7296,14 @@ NoteToInc:
 ; HL/BC, bass in the alternate HL'/BC'. Loop = 124 T -> 28226 Hz per voice. Accs persist.
 ; (Single-voice fallback: drop the exx/bass half, loop 71 T, NoteInc *1.3294, tick 5500.)
 PlaySamples:
+    ; Merge the LIVE border colour into the speaker writes so the border stays steady (cyan
+    ; in-game, black on the title/win screens) instead of flashing black while a jingle plays --
+    ; port 254 carries both the speaker (bit 4) and the border (bits 0-2). Patched once per note
+    ; into the two `or n` immediates below (a register-read in the 138T hot loop would be too slow;
+    ; the NoteInc table is recalibrated for the +14T the two `or`s add).
+    ld a,(BorderC)
+    ld (.bm+1),a
+    ld (.bb+1),a
     push de
     ld hl,(Acc1)
     ld bc,(Inc1)
@@ -7292,7 +7319,9 @@ PlaySamples:
     rrca
     rrca
     rrca
-    out (254),a                  ; melody bit -> speaker
+.bm:
+    or 0                         ; <- operand patched to BorderC: keep the border bits steady
+    out (254),a                  ; melody bit -> speaker (border held)
     exx
     add hl,bc                    ; bass phase += inc
     ld a,h
@@ -7300,7 +7329,9 @@ PlaySamples:
     rrca
     rrca
     rrca
-    out (254),a                  ; bass bit -> speaker
+.bb:
+    or 0                         ; <- operand patched to BorderC
+    out (254),a                  ; bass bit -> speaker (border held)
     exx
     dec de
     ld a,d
@@ -7312,13 +7343,15 @@ PlaySamples:
     exx
     ret
 
-; increments = freq * 65536 / 28226 (~= freq * 2.3219). idx0 rest; 1=C3 .. 37=C6.
+; increments = freq * 65536 / 25362 (~= freq * 2.5840). idx0 rest; 1=C3 .. 37=C6.
+; (Recalibrated x138/124 when the steady-border `or` raised the PlaySamples loop 124T->138T,
+;  dropping the per-voice sample rate 28226->25362 Hz; keeps the pitch unchanged.)
 NoteInc:
     defw 0                                                   ; 0  rest
-    defw 304,322,341,361,383,405,430,455,482,511,541,573     ; 1-12  C3..B3
-    defw 608,644,682,722,765,811,859,910,964,1022,1082,1147  ; 13-24 C4..B4
-    defw 1215,1287,1364,1445,1531,1622,1718,1820,1929,2043,2165,2293 ; 25-36 C5..B5
-    defw 2430                                                ; 37 C6
+    defw 338,358,379,402,426,451,479,506,536,569,602,638     ; 1-12  C3..B3
+    defw 677,717,759,804,851,903,956,1013,1073,1137,1204,1276 ; 13-24 C4..B4
+    defw 1352,1432,1518,1608,1704,1805,1912,2025,2147,2274,2409,2552 ; 25-36 C5..B5
+    defw 2704                                                ; 37 C6
 
 ; Funiculi Funicula -- RECONSTRUCTED in C major (verse + refrain), tarantella bass.
 ; NOTE: notes/tempo to be confirmed by ear (can't audition headless). Easy to edit: each
