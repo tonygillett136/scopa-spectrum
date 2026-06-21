@@ -120,6 +120,7 @@ deck.
 | `build_tap.py` / `build_tzx.py` | Build `scopa.tap` (silent multi-part loader) and wrap it as `scopa.tzx` (+ archive metadata) |
 | `tools/` | Art pipeline (`convert_deck.py`, `make_screens.py`, `mono_outline.py`) + `ai_tune.py` (host-side AI weight tuner) |
 | `site/` | The play-in-browser site (JSSpeccy embed + downloads) |
+| `RULES.md` | The rules & scoring system **as implemented** (categories, Primiera/Napola values, variant choices) |
 | `DEVELOPMENT.md` | Architecture / memory map / build / gotchas reference |
 | `DEVLOG.md` | Chronological build log |
 | `ARTICLE.md` | Write-up of how the game was built |
