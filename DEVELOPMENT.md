@@ -31,25 +31,32 @@ memory map, build process, key decisions and gotchas. For the chronological stor
 ## 2. Files
 
 ```
-scopa/
-  scopa.asm            THE game (Z80, sjasmplus). ~3850 lines. Builds scopa.sna + scopa_code.bin.
-  deck.bin             40 cards + 1 back, 384 bitmap bytes each (15744 B). INCBIN @0xC000.
-                       Coppe figures (cards 17/18/19) carry a cup pip (convert_deck.cup_badge).
-  deck_v1_backup.bin   OLDER pre-figure-touch-up deck (md5 3aac…); NOT a per-round baseline. To
-                       revert just the cup pips: drop the suit==1&value>=8 stamp in convert_deck
-                       and re-run it (NOT cp deck_v1_backup, which also loses the figure touch-ups).
-  title.scr / loading.scr  6912-byte SCR screens (from make_screens.py).
-  scopa_code.bin       assembled code 0x8000..CodeEnd (for the tape; excludes title/deck).
-  scopa.tap            the real-hardware tape (silent multi-part loader).
-  build_tap.py         builds scopa.tap from scopa_code.bin + loading.scr + title.scr + deck.bin.
+scopa/                 (the CANONICAL decode-on-draw game; original resident-deck build archived in legacy-v1/)
+  scopa.asm            THE game (Z80, sjasmplus). ~7400 lines. Builds scopa.sna + scopa_code.bin.
+  deck.bin             40 cards + 1 back, 384 bitmap bytes each (41×384). NOT shipped resident —
+                       it's the SOURCE that compress_deck.py packs to deck.zx0 + deck_index.bin.
+                       Kings carry the R42 crown (convert_deck.crown_king); coppe figures a cup pip.
+  deck.zx0 / deck_index.bin  ZX0-compressed deck (8408 B) + per-card stream offsets — INCBIN @0xC000,
+                       random-access decode-on-draw source for DecodeCardA.
+  title.zx0 / title2.zx0     ZX0-compressed title screens (INCBIN @0x6000; decoded to 0x4000 at boot).
+  loading.zx0 / win.zx0      ZX0 loading screen (pop-in at load) and the VINCITORE win image.
+  dzx0_standard.asm    the 68 B ZX0 decoder (INCLUDE'd; used for deck/titles/loading/win).
+  *_banner.bin         SCOPA!/NEAPOLITAN/tricolore banners (INCBIN).
+  scopa.tap/.tzx/.sna  real-hardware tape (silent multi-part loader) / TZX (turbo blocks) / snapshot.
+  build_tap.py         builds scopa.tap (decoder block first → loading.zx0 pop-in → code → titles →
+                       deck.zx0 → win). build_tzx.py wraps it as turbo blocks + archive metadata.
+  RULES.md             the rules & scoring AS IMPLEMENTED.
   tools/
-    convert_deck.py    reference JPGs -> deck.bin (defined-mono). RUN FROM scopa/ (writes CWD-relative!).
-    make_screens.py    reference JPGs -> title.scr + loading.scr (colour per-cell quantise).
-    compare_figures.py figure-card conversion A/B montage (-> /tmp/figure_compare.png).
-    ai_tune.py         host-side Scopa sim + self-play AI weight tuner + 2-ply experiment.
-    mono_outline.py    helpers (fit, BAYER, png) used by convert_deck.py.
-  DEVLOG.md            chronological build log.
-  DEVELOPMENT.md       this file.
+    convert_deck.py    reference JPGs -> deck.bin (defined-mono; crown_king/cup_badge). RUN FROM scopa/.
+    compress_deck.py   deck.bin -> deck.zx0 + deck_index.bin (official einar-saukas zx0; roundtrip-verified).
+    render_deck.py     deck.bin -> site/img/deck.png + cards_hero.png montages (so they track the art).
+    build_zx0.sh       builds the official zx0/dzx0 C tools into tools/.
+    ai_tune.py / ai_audit.py / ai_prime.py   host-side Scopa sim + AI weight tuner + the AI-ceiling audit.
+  zxtest.py            ZEsarUX harness: load .sna/.tap/.tzx/.z80, screenshot, read memory.
+  legacy-v1/           the original resident-deck game (source, build, harnesses, prototypes), archived.
+  research/            the decode-on-draw sandbox proofs (M0-M5, RESULTS/DESIGN/AUDIT, win-art generators).
+  site/                play-in-browser site (JSSpeccy embed + downloads); deploy: npx wrangler pages deploy site.
+  DEVLOG.md            chronological build log.   DEVELOPMENT.md  this file.   RULES.md  rules & scoring.
 ```
 
 Spec source (DO NOT ship from here — reference only): `/Volumes/SSD1/code/scopa_spectrum/`
@@ -62,22 +69,32 @@ Spec source (DO NOT ship from here — reference only): `/Volumes/SSD1/code/scop
 
 ```
 0x4000-0x5AFF  ZX screen (bitmap 0x4000, attrs 0x5800)
-0x6000-0x7245  title.rle (INCBIN, 4646 B SCOMPACT-packed) — DecompressScr expands it to
-               0x4000 at boot, THEN this region is reused as the SHADOW BUFFER (transient)
-0x6000-0x7AFF  SHADOW BUFFER (bitmap 0x6000, attrs 0x7800) — render here, then blit to 0x4000
-0x8000-~0x9430 code (grows up; CodeEnd ~0x9430 now) — ceiling is the state block @0xB000
-0xB000-~0xB104 state vars (ORG 0xB000)
+0x6000-0x7AFF  title1.zx0 + title2.zx0 (INCBIN, ZX0; DecompressScr decodes the chosen one to
+               0x4000 at boot), THEN this region is reused as the SHADOW BUFFER (bitmap 0x6000,
+               attrs 0x7800) — render here, then delta-blit to 0x4000. (The tape's loading.zx0
+               also decodes through here at load time.)
+0x8000-~0xB6xx code (grows up) — ceiling is the state block @0xB700
+0xB700-~0xB92F state vars (ORG 0xB700; ~0x230B incl. the pre-allocated minimax node frames)
 0xBFF0         stack (SP set at Start)
-0xC000-0xFD7F  deck.bin (INCBIN; card src for BlitCard)
-0x5B00 area    printer buffer — the tape's 43-byte silent loader lives at 23296
+0xC000-~0xE085 deck.zx0 (INCBIN, ZX0-compressed deck, 8408 B) + deck_index.bin (per-card stream
+               offsets) — random-access decode-on-draw source
+0xE100-0xE309  DecodeCardA + dzx0_standard (the 68B ZX0 decoder) + cache code + CacheIds(0xFF)
+0xE30A-0xF209  card CACHE: 10 slots × 384 B (transient; per-frame re-renders are cache HITS)
+0xF20A-~0xFE50 win.zx0 (the VINCITORE image; time-shares this region with the cache — cards
+               animate during play, the image decodes here at match end)
+0x5B00 area    printer buffer — the tape's silent ML loader lives at 23296
 ```
-Headroom note: the title screen NO LONGER occupies 0x9400 — it's SCOMPACT-compressed
-(make_screens.py rle_compress → title.rle) and parked in the shadow region @0x6000, where
-ShowTitle (DecompressScr) expands it to the screen at boot and the first gameplay frame
-overwrites it. So code now grows freely 0x8000→0xB000 (~7 KB headroom). NEXT lever if even
-that fills: compress deck.bin too (decompress-on-draw) — modest (~30 %, dither limits RLE).
+**Decode-on-draw architecture (the big change since the resident-deck build, now in `legacy-v1/`):**
+the deck is stored ZX0-compressed at 0xC000 (8.4 KB vs 15.7 KB raw, frees ~7 KB). `BlitCard` is the
+one chokepoint — it calls `DecodeCardA`, which returns a card's 384 B bitmap from a 10-slot CACHE,
+decompressing into a free slot on a MISS (round-robin evict). Because a board's distinct cards fit the
+cache, per-frame animation re-renders (RenderShadow/DrawZipCards/slides) are HITS → cycle-≈ the old
+id*384 multiply → tear-free + original speed BY CONSTRUCTION; only a genuinely new on-screen card costs
+a ~30k-T decode. The 4 tear-critical direct draws pre-warm off-beam before the HALT. State ORG was slid
+0xB000→0xB700 over the project for code room (Esperto minimax, deal cascade, RemoveCascade, the
+steady-border patch).
 
-Key state vars (offsets drift as vars are added — search the `ORG 0xB000` block):
+Key state vars (offsets drift as vars are added — search the `ORG 0xB700` block):
 Deck[40], Player[3], Opp[3], Table[16], TableN, DeckPos, Seed[2], PPile[40]/PPileN,
 OPile[40]/OPileN, PScopa/OScopa, Who, FCval, CapSel[16], Played, Cursor, LastCap, Keys,
 PMatch/OMatch, PRound/ORound, CatWin[5], Options[32]/OptionN, AI eval scratch (ScoreW,
@@ -258,9 +275,14 @@ value>=8. Touches ONLY cards 17/18/19; verify with a byte-diff vs a no-stamp reb
 ## 10. Tape (the "Bytes:" gotcha)
 
 Multi-part `LOAD ""CODE` prints "Bytes:" over the artwork. Fix = SILENT ML LOADER:
-BASIC shows SCREEN$ (art→0x4000), POKEs a 43-byte loader to the printer buffer (23296),
-RANDOMIZE USR runs it: 3× ROM LD-BYTES (0x0556) of HEADERLESS blocks (code→0x8000,
-title.rle→0x6000, deck→0xC000), jp 0x8000. No messages over the art; art shows throughout.
+BASIC POKEs the ML loader to the printer buffer (23296), `RANDOMIZE USR` runs it. The loader
+blanks the screen, then ROM LD-BYTES (0x0556) the HEADERLESS blocks back-to-back: the decoder
+block FIRST (so dzx0 is resident), then `loading.zx0` → a scratch buffer → `call dzx0` → 0x4000
+(a clean POP-IN), then code→0x8000, title1/title2.zx0→0x6000, deck.zx0→0xC000, win.zx0, then
+`jp 0x8000`. ⚠ NEVER pause mid-load — a continuously-playing TZXDuino streams the next block past
+the Spectrum while it waits → desync. The min-display hold instead lives in the GAME, gated on a
+`TapeFlag` the loader sets (tape skips it; a snapshot load gets it). The .tzx uses Turbo blocks
+(ID 0x11) with a longer pilot so the TZXDuino reliably catches each leader.
 ⚠️ ZEsarUX headless smartload can't instaload headerless blocks (no headers to place them)
 → tape load is only verifiable on real HW / an accurate emulator. The `.sna` (INCBIN
 title+deck) is the headless test path. build_tap.py validates structure + checksums.

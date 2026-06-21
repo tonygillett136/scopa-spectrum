@@ -878,3 +878,120 @@ locally-correct choices the heuristic already makes. Conclusion: the heuristic i
 architectural ceiling; the only real lever (search) is already deployed where it's exact and
 cheap (the deck-empty Esperto minimax). DECISION (Tony): accept the verdict, leave the AI as is.
 Full write-up in AI_ANALYSIS.md. No code change. Diagnostic scripts kept in tools/.
+
+## Decode-on-draw card art becomes the canonical game (2026-06-19 → 06-20)
+A throwaway sandbox (`scopa-beam-race/`) was built to test whether the 40-card deck could be stored
+ZX0-compressed and decompressed ON DRAW, freeing the ~7 KB of resident card art. Measured on the real
+Z80: per-card ZX0 = 52.9% (8,408 B + index vs 15,744 B raw); a standard `dzx0` decode is ~30,124 T/card
+(turbo 24k, mega 21k) -- 2.5-3.7x heavier than my desk estimate. A naive decode-per-frame blows the
+frame budget, so the architecture is a small **persistent card CACHE** (10 slots, keyed by id) keyed off
+the one chokepoint (`BlitCard` -> `DecodeCardA`): per-frame re-renders become cache HITS (cycle-≈ the old
+id*384 multiply) -> tear-free + original speed BY CONSTRUCTION; only a genuinely new on-screen card costs
+a decode. The four tear-critical direct draws pre-warm the card off-beam before the HALT. Verified
+CRT-free via a CacheMiss counter (deal=8, re-pack=7, full match=23 = distinct cards, never per-frame).
+The whole game was ported to this and **Tony CRT-confirmed "perfect"**. Then CONSOLIDATED (commit 373abd6)
+into a single tree: `scopa/` root = the canonical decode-on-draw game; `scopa/legacy-v1/` = the original
+resident-deck build (archived); `scopa/research/` = the sandbox proofs. `scopa-beam-race/` deleted.
+LESSON: beam tricks fix TEARING (timing); the multi-card-per-frame re-render is a THROUGHPUT problem ->
+the fix is a cache, not fancier beam-racing. Frees ~7 KB; .tap dropped ~45 KB -> ~38 KB.
+
+## VINCITORE win screen (2026-06-19)
+The ~7 KB freed by decode-on-draw funds a proper win screen. `ShowWinYou` ZX0-decompresses a VINCITORE
+image (Re di denari on a gold sunburst, tricolore Rockwell wordmark) straight to 0x4000 + a victory
+jingle, on a PLAYER win only (the opponent-win path keeps the scoreboard -- Tony's call). Memory crunch:
+both win+lose (6.3 KB) won't fit with a smooth cache, so the card cache was trimmed 18 -> 10 slots (still
+above the ~8 smooth floor) to free 0xC000-0xFFFF for `win.zx0` (3,142 B @ 0xF20A, time-shared with the
+cache -- cards animate during play, the image uses the region at match end). Art generator
+`research/art/win_v3.py` (per-cell optimal 2-colour + Bayer + a `stamp_banner` direct-cell text pass +
+Rockwell slab serif). Tony-approved after an art-direction loop (dropped wordmarks for visible faces,
+fixed blue specks, traditional font).
+
+## Tear-free ace sweep: remove cards one per frame (2026-06-19 → 06-20)
+A 5+ card removal (an ace sweeping the table) dirties the whole table band at once; the ahead-of-beam
+delta-blit can't keep pace and tears ~3/4 down ("horizontal blinds"). First fix `ClearTableBehind` cleared
+the band BEHIND the beam via a calibrated raster delay -- but that delay isn't honoured by a real ULA, so
+it STILL tore on Tony's Harlequin. Replaced (commit 62aff22) by `RemoveCascade` (Tony's idea): erase each
+taken card ONE PER FRAME ahead of the beam -- the R41 deal cascade in reverse, every frame a single
+tear-free EraseCardRegion, NO hardware-specific timing. A non-crowded sweep also erases the played-card
+slot. Threshold lowered 5 -> 3 (commit 7d234ba) after Tony's CRT saw a 4-card ace-take still tear at >=5
+(the delta overruns the beam from ~3 cards up). **Tony CRT-confirmed clean.**
+
+## Harlequin real-hardware fixes: col-31 flash bleed + clamp ripples (2026-06-20)
+Tony's Harlequin (faithful ULA clone) showed a 1px-wide, full-card-height black line flashing at the FAR
+LEFT whenever the RIGHTMOST card flashed. Not a bug: col 0's attr is CLEAN in RAM -- it's the ULA latching
+col-31's attribute and bleeding it to the left edge of following lines (emulator-invisible). FIX (c51a199):
+clamp the rightmost card column 26 -> 25 so col 31 stays felt -> bleed invisible. That clamp then rippled
+into three more geometry sites that had to match: the re-pack slide-START (CaptureZipOld/FillZipCols, the
+"rightmost card nudges right then settles" report, 3aa2ddf), the crowded-capture FLASH WIDTH (it flashed
+`step` cols onto the obscured left strip of the clamped neighbour, b5108dc), and -- found in review -- the
+smooth-glide TARGET (ZipCompact `.zsmooth` + ZipMoveSpan computed 26 unclamped, ffb902d). LAW: a
+draw-position clamp must be mirrored EVERYWHERE the geometry is recomputed -- draw, slide-target,
+slide-START, and flash-width.
+
+## ZX0 titles + loading-screen pop-in (2026-06-20)
+Both rotating title screens were SCOMPACT byte-RLE (~58%); re-packed as ZX0 (~40%): `DecompressScr` is now
+a thin trampoline to the already-resident `dzx0_standard` -- titles decode pixel-identical (-2.4 KB tape).
+The loading screen was an uncompressed 6912 B `LOAD ""SCREEN$` that built up line-by-line; now ZX0-packed
+(6912 -> 3056 B) and decoded by the loader (load the decoder block first, stream `loading.zx0` to a scratch
+buffer, `call dzx0` -> a clean POP-IN). The decoder is also re-rendered into `tools/render_deck.py`-style
+montages. Tape 39 KB -> 36 KB.
+
+## Tape/TZX loader: never pause mid-load, longer leaders (2026-06-20)
+The first loading-screen attempt held the popped-in screen ~2 s MID-LOAD -- which DESYNCED the tape: a
+continuously-playing TZXDuino streams the next block past the Spectrum while it holds, so "the block after
+the loading screen isn't recognised" (Tony, on his TZXDuino). FIXES: (1) the loader never pauses -- it
+streams every block back-to-back, always in LD-BYTES, and sets a `TapeFlag` so the GAME does the
+min-display hold only on a snapshot/DivMMC load (tape skips it). (2) `build_tzx.py` switched from
+Standard-Speed blocks to **Turbo blocks (ID 0x11)** with a 5000-pulse pilot (vs the standard 3223) so the
+TZXDuino reliably catches each leader even when the Spectrum is briefly busy (Tony's "leader too short").
+**Tony confirmed the .tzx loads on his TZXDuino.** Lesson: ZEsarUX fast-loads a .tap so only real hardware
+tests tape timing.
+
+## Repo consolidation, RULES.md, site refresh (2026-06-20)
+Consolidated to one tree (above). Wrote `RULES.md` -- the rules & scoring AS IMPLEMENTED (capture/sweep
+rules, the four classic categories, Primiera prime table 7=21/6=18/A=16, the Napola consecutive-coin-run
+rule with the note on where it diverges from Wikipedia's contradictory Scopone trentino text, Palle del
+cane, play-to-11, the four AI tiers). Site: deployed the enhanced build (downloads + recaptured in-browser
+.z80s + new gameplay/Vincitore screenshots); regenerated the deck montages from the crowned `deck.bin`
+(`tools/render_deck.py`) so all four kings show the R42 crown; updated the controls to the 4th skill tier
+(1-4 = Easy/Medium/Hard/Esperto, asso->5, sound->6) and fixed an invisible white `<em>` on the cream
+controls card. Site is direct-upload Cloudflare Pages -- deploy with `npx wrangler pages deploy site`
+(a git push alone does NOT deploy).
+
+## Code review: IsLastPlay count bug + re-pack clamp + cleanup (2026-06-20)
+A careful review (two parallel audit agents + traces) found two real bugs. (1) `IsLastPlay` did
+`CountPlayer / ld b,a / CountOpp / add a,b` -- but `CountHand` ends in `djnz` so it returns B=0, dropping
+the player term: it computed `deck+opp` not `deck+player+opp`, wrongly SUPPRESSING a valid scopa when the
+opponent clears on its last card while the player still holds one (the mirror of the only tested case).
+Fixed via `push af`/`pop bc`; new TESTMODE 55 verifies the mirror. (2) The unclamped re-pack glide target
+(above). Plus cleanup: 5 stale comments, 8 dead labels (CanCapture, ZipSnap, 6 orphan strings) removed.
+All committed ffb902d / f605ba2.
+
+## In-browser keyboard: autoStart + clean snapshots (2026-06-20)
+"Keyboard dead again" on the JSSpeccy embed. Two real defects in the FILES: the .z80 snapshots were
+captured mid-ROM-interrupt (PC=0x0038, IFF=0 -- fragile to resume) and `autoStart:false` left the emulator
+PAUSED, where JSSpeccy DETACHES its keyboard handler. FIXES: recapture at a clean key-wait state (poll PC,
+save only when 0x8000<=PC<0xC000 and the SAVED file verifies IFF1=1 -- retry until clean, since the keywait
+loop HALTs and mostly samples in the ISR); set `autoStart:true`. Also: JSSpeccy picks its loader by file
+EXTENSION so a `?v=` cache-buster breaks it -- bump the FILENAME (play-a.z80 / play-b.z80) to defeat a
+stale cached snapshot. NB the JSSpeccy CPU worker doesn't step under headless Playwright, so the keyboard
+can only be confirmed in a real browser.
+
+## Scores prompt + 60s idle->demo + soft-reset combo (2026-06-21)
+Three small UX tweaks. (1) The round-scores screen now prints "PRESS SPACE TO CONTINUE" (row 21, bright
+white); the demo keeps "PRESS SPACE TO PLAY". (2) The match-END screens (win and lose) fall into the
+attract demo after 60 s with no SPACE -- `WaitWinner` + new `WaitEndOrDemo` reset 23672 and `jp EnterDemo`
+at 3000 frames (`ei` so the timer ticks); the between-rounds scores screen keeps the no-timeout wait. (3)
+CAPS SHIFT + SYMBOL SHIFT + SPACE held during a game resets to the skill menu -- new `CheckSoftReset`
+polled from ReadKeys + Delay, resets SP and `jp NewGame`. Verified: the combo on the win screen jumps to
+SELECT SKILL LEVEL.
+
+## Steady cyan border during jingles -- no capture flash (2026-06-21, Tony-confirmed)
+Port 254 carries the speaker (bit 4) AND the border (bits 0-2) in one byte, so the `PlaySamples` sound
+loop was driving the border BLACK (0x00/0x10) for a jingle's duration -- flashing the game's cyan border on
+every capture. Fix (branch steady-border, merged 241edfd): `OR` the LIVE `BorderC` into the speaker byte
+before each OUT, via a self-modified `or n` immediate patched once per note (a memory read in the 138 T hot
+loop would be too slow) -> border held steady (cyan in-game, still black on the title/win screens where
+BorderC=0). The two `or`s add 14 T (124 T -> 138 T loop), so `NoteInc` was recalibrated x138/124 to keep
+the pitch. Verified the operands patch to 0x05 (TESTMODE 56; the border itself can't be screenshotted --
+ZEsarUX flattens it). **Tony: "Looks and sounds great."**
