@@ -5617,10 +5617,15 @@ ShowResults:
     call HighlightWinners        ; glow the winner's number green per category
     ld a,(DemoMode)
     or a
-    ret z                        ; normal game: caller owns the wait prompt
-    ld hl,StrDemoPrompt          ; demo: prompt under the scoring grid
-    ld d,6
-    ld e,21
+    jr nz,.rdemo                 ; demo: "PRESS SPACE TO PLAY" (as on the title/demo HUD)
+    ld hl,StrContinue            ; normal game: explicit "PRESS SPACE TO CONTINUE" prompt
+    ld d,4                       ; 23 chars -> centred at col 4
+    jr .rprompt
+.rdemo:
+    ld hl,StrDemoPrompt          ; "PRESS SPACE TO PLAY" (19 chars)
+    ld d,6                       ; centred at col 6
+.rprompt:
+    ld e,21                      ; row 21, under the scoring grid
     call PrintStr
     ld e,21
     ld a,0x47                    ; bright white
@@ -5799,6 +5804,7 @@ StrCpuBig:   defb "CPU WINS",0
 StrUnlucky:  defb "BETTER LUCK NEXT TIME",0
 StrFinal:    defb "FINAL SCORE",0
 StrAgain:    defb "PRESS SPACE TO PLAY AGAIN",0
+StrContinue: defb "PRESS SPACE TO CONTINUE",0
 
 ; =================== card paint ===================
 ; PaintAll = build the frame in the shadow buffer, then blit it to the screen.
