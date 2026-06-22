@@ -625,8 +625,8 @@ Start:
     jr .s58
     ENDIF
     IF TESTMODE == 60
-    ; VINCITORE attribute-shimmer: decode the win screen + run the shimmer (loops until SPACE).
-    xor a
+    ; VINCITORE attribute-shimmer in the DEMO victory path (DemoMode=1) -- the case Tony hit.
+    ld a,1
     ld (DemoMode),a
     call ShowWinYou
     call WaitWinner
@@ -5984,9 +5984,6 @@ ShowScoreAndPrompt:
 
 ; WaitWinner: tricolore border shimmer until SPACE (celebratory match-win wait)
 WaitWinner:
-    ld a,(DemoMode)
-    or a
-    jp nz,WaitSpaceOrDemo        ; demo: a timed 10s hold instead of the shimmer-until-SPACE
     call ReadKeys
     or a
     jr nz,WaitWinner             ; drain any held keys first
@@ -5996,20 +5993,33 @@ WaitWinner:
     call BuildShimmer            ; back up the win attrs + build the per-cell shimmer table
     ei                           ; 50 Hz interrupt ticks the idle timer + paces the shimmer
     ld hl,0
-    ld (23672),hl                ; reset the 60s "no SPACE -> attract demo" timer
-.w:
+    ld (23672),hl                ; reset the idle timer
+    ld a,(DemoMode)
+    or a
+    jr nz,.demo                  ; the attract demo's victory shimmers too (then continues)
+.w:                              ; a real win: shimmer until SPACE; 60s idle -> attract demo
     halt
     call ShimmerStep             ; advance the burst/settle anim + repaint ray/banner/star attrs
     call ReadKeys
     bit 2,a
     jr nz,.gotsp                 ; SPACE -> play again
-    ld hl,(23672)                ; no SPACE for 60s -> drop into the attract demo
-    ld de,3000                   ; 60s @ 50 Hz
+    ld hl,(23672)
+    ld de,3000                   ; no SPACE for 60s @ 50 Hz -> drop into the attract demo
     or a
     sbc hl,de
-    jr c,.w                      ; under 60s -> keep shimmering
+    jr c,.w
     ld sp,0xBFF0                 ; idle timeout -> demo (reset stack; never returns)
     jp EnterDemo
+.demo:
+    halt
+    call ShimmerStep
+    call DemoCheckSpace          ; SPACE during the demo -> leave the demo (never returns)
+    ld hl,(23672)
+    ld de,400                    ; ~8s of shimmer, then continue the throwaway demo match
+    or a
+    sbc hl,de
+    jr c,.demo
+    ret
 .gotsp:
     call ReadKeys
     or a
