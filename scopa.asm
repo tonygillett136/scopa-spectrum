@@ -2184,11 +2184,14 @@ OppTurn:
     call PaintAll                 ; board with the opp slot now a gap
     ld a,(Played)
     call DecodeCardA              ; pre-warm the revealed card -> the reveal BlitCard is a HIT
+    halt                          ; sync to the frame boundary: the CPU hand is at the very TOP
+                                 ; (rows 0-7, almost no ahead-of-beam slack), so a cache-hit
+                                 ; BlitCard (~9.7k T) drawn here lands fully ahead of the beam
     ld a,(SlHandCol)
     ld d,a
     ld e,0
     ld a,(Played)
-    call BlitCard                 ; reveal the played card face-up at its slot (top row)
+    call BlitCard                 ; reveal the played card face-up at its slot (top row), tear-free
     ld a,(SlHandCol)
     ld d,a
     ld e,0
