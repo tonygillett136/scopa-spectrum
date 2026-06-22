@@ -4196,6 +4196,16 @@ RemoveCascade:
     ld (ScrOfs),a                ; erase + redraw both target the live screen
     ld a,(RmN)
     ld (RmCut),a                 ; RmCut = RmN: nothing peeled yet (all to-remove indices < RmN)
+    ; stop the capture flash BEFORE the sweep: clear the hardware FLASH bit (7) across the table
+    ; band so the taken cards go SOLID, hold a brief beat, then peel -- else they flash mid-sweep.
+    ld hl,0x5900                 ; screen attrs, char-rows 8-15 (the table band) = 0x5900..0x59FF
+    ld b,0                       ; 256 cells
+.rcunfl:
+    res 7,(hl)
+    inc hl
+    djnz .rcunfl
+    ld b,1
+    call Delay                   ; brief solid beat, then the sweep
 .rcframe:
     ld a,(RmCut)                 ; find M = highest to-remove index strictly below RmCut
 .rcfind:
