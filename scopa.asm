@@ -4172,13 +4172,15 @@ BlitSlice:
 ; survivor), small enough to finish in the top border ahead of the raster, so every frame is
 ; tear-free by the same proven single-card path -- with NO hardware-specific timing. Tony's idea.
 ; Pre: the shadow already holds the post-removal board (taken cards blank, survivors at old cols).
-; RemoveCascade: peel the taken cards off the table one per frame, RIGHT-TO-LEFT, RESPECTING THE
-; OVERLAP. Naive in-place erasing (restore felt) can't: cards overlap, so clearing one card's
-; footprint either eats the next card's visible edge (L->R) or exposes the neighbour's hidden strip
-; as bare felt (R->L) -- a flashing half-card either way. Instead, each frame we repaint the WHOLE
-; fan of cards STILL PRESENT into the shadow and delta-blit only the change: when the rightmost
-; card vanishes, its left neighbour is redrawn complete and becomes the clean new rightmost. Every
-; frame shows a whole fan, one card shorter. Uses RmTab[]/RmN saved pre-CompactTable + CapSel[].
+; RemoveCascade: peel the taken cards one per frame, RIGHT-TO-LEFT, respecting the overlap. Each
+; frame: HALT, then restore ONE card's 6x8 cells from the shadow (felt / an overlapping survivor) so
+; it vanishes -- the proven tear-free single-card path -- AND, if its LEFT neighbour is ALSO a taken
+; card, redraw that neighbour so its newly-exposed strip shows the card, not bare felt (else the
+; flashing half-card Tony saw). A SURVIVOR neighbour needs no redraw: the shadow holds it at its old
+; column, so the erase already restores it. The neighbour is pre-warmed (DecodeCardA) BEFORE the HALT
+; so its redraw is a cache HIT (~9.7k T); with the erase that's ~17k T, finishing in the top border
+; ahead of the raster (the band starts ~28k T in). Fast (1 card/frame), no hardware-specific timing.
+; Uses RmTab[]/RmN (saved pre-CompactTable) + CapSel[]. Pre: shadow = the post-removal board.
 RemoveCascade:
     ld a,(TableN)                ; oldN = newN + Removed
     ld b,a
@@ -4190,83 +4192,68 @@ RemoveCascade:
     ld (Tmp1),a                  ; Tmp1 = step_old (pre-removal column step)
     ld a,b
     ld (TableN),a                ; restore newN
+    xor a
+    ld (ScrOfs),a                ; erase + redraw both target the live screen
     ld a,(RmN)
-    ld (RmCut),a                 ; RmCut = RmN: nothing removed yet (all to-remove indices < RmN)
+    ld (RmCut),a                 ; RmCut = RmN: nothing peeled yet (all to-remove indices < RmN)
 .rcframe:
     ld a,(RmCut)                 ; find M = highest to-remove index strictly below RmCut
 .rcfind:
     or a
-    jp z,.rcdone                 ; nothing left to remove -> survivors are all that's drawn
+    jp z,.rcdone                 ; all taken cards peeled -> survivors are all that's left
     dec a
     ld c,a
     call IsToRemove
     or a
-    jr nz,.rcfound               ; this index is a taken card (or the played card) -> remove it
+    jr nz,.rcfound               ; a taken card (or the played card) -> peel it
     ld a,c                       ; survivor -> keep scanning down
     jr .rcfind
 .rcfound:
     ld a,c
-    ld (RmCut),a                 ; RmCut = M: indices >= M are now gone
-    call ClearShadowBand         ; wipe the table band in the shadow to felt
-    ld a,0x20
-    ld (ScrOfs),a                ; ...then repaint the present fan into the shadow
+    ld (RmCut),a                 ; M = the card to peel this frame
     xor a
-    ld (Tmp0),a                  ; k = 0
-.rcdraw:
-    ld a,(Tmp0)
-    ld hl,RmN
-    cp (hl)
-    jr nc,.rcblt                 ; drawn all RmN slots
-    ld a,(Tmp0)                  ; present[k]?  survivor -> yes;  to-remove -> only if k < RmCut
-    ld c,a
+    ld (Tmp0),a                  ; Tmp0 = 0: no neighbour redraw (default)
+    ld a,(RmCut)
+    or a
+    jr z,.rchalt                 ; M=0 -> no left neighbour
+    dec a
+    ld c,a                       ; M-1
     call IsToRemove
     or a
-    jr z,.rcpres                 ; survivor -> always present
-    ld a,(Tmp0)
-    ld hl,RmCut
-    cp (hl)
-    jr nc,.rcdnext               ; to-remove AND k >= RmCut -> already peeled -> skip
-.rcpres:
-    ld a,(Tmp0)
-    call ColOfK
-    ld d,a                       ; D = col(k)
-    ld e,8                       ; E = char-row 8
+    jr z,.rchalt                 ; M-1 is a survivor -> the shadow restores it; no redraw
+    ld a,1
+    ld (Tmp0),a                  ; M-1 is another taken card -> redraw it this frame
+    ld a,(RmCut)
+    dec a
     ld hl,RmTab
-    ld a,(Tmp0)
     call addHLA
-    ld a,(hl)                    ; A = card id at slot k (DE preserved by addHLA)
-    call BlitCard                ; draw onto the shadow (left-to-right -> correct overlap)
-.rcdnext:
-    ld hl,Tmp0
-    inc (hl)
-    jr .rcdraw
-.rcblt:
-    xor a
-    ld (ScrOfs),a                ; back to the live screen
-    ld a,8
-    ld (DBstart),a
-    ld a,16
-    ld (DBend),a
-    call DeltaBlit               ; HALTs internally -> one card peels per frame, tear-free
+    ld a,(hl)                    ; M-1 card id
+    call DecodeCardA             ; pre-warm BEFORE the HALT -> the redraw BlitCard is a cache HIT
+.rchalt:
+    halt                         ; the screen writes below land in the top border, ahead of the beam
+    ld a,(RmCut)
+    call ColOfK
+    ld d,a
+    ld e,8
+    call EraseCardRegion         ; card M vanishes (shadow felt / overlapping survivor) -- tear-free
+    ld a,(Tmp0)
+    or a
+    jp z,.rcframe                ; no neighbour redraw
+    ld a,(RmCut)                 ; redraw the left neighbour M-1, complete (its hidden strip exposed)
+    dec a
+    ld hl,RmTab
+    call addHLA
+    ld a,(hl)
+    push af                      ; M-1 card id
+    ld a,(RmCut)
+    dec a
+    call ColOfK
+    ld d,a
+    ld e,8
+    pop af
+    call BlitCard                ; cache HIT (pre-warmed) -> finishes ahead of the beam
     jp .rcframe
 .rcdone:
-    xor a
-    ld (ScrOfs),a
-    ret
-
-; ClearShadowBand: shadow table band (char-rows 8-15) -> felt (bitmap 0x00, attr 0x28 = cyan).
-; The middle screen third is one contiguous 0x800 bitmap block; attrs are 8 rows x 32 = 0x100.
-ClearShadowBand:
-    ld hl,0x6800                 ; shadow bitmap, rows 8-15
-    ld de,0x6801
-    ld bc,0x07FF
-    ld (hl),0
-    ldir
-    ld hl,0x7900                 ; shadow attr, rows 8-15
-    ld de,0x7901
-    ld bc,0x00FF
-    ld (hl),0x28
-    ldir
     ret
 
 ; IsToRemove: C = fan index -> A = 1 if that slot is a card to peel away (a captured table card, or
