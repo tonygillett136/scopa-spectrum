@@ -82,6 +82,9 @@ NapShown:  defs 1                  ; 1 once the napola (ace+2+3 of coins) celebr
 BnBase:    defs 2                  ; SweepBanner: attr base addr of the banner
 BnCol:     defs 1                  ; SweepBanner: current light-sweep column
 BnPass:    defs 1                  ; SweepBanner: remaining passes
+RmTab:     defs 16                 ; RemoveCascade: pre-removal table ids (+ played card at oldN)
+RmN:       defs 1                  ; RemoveCascade: count of cards in the fan
+RmCut:     defs 1                  ; RemoveCascade: to-remove cards with index >= this are gone
 Ppalle:    defs 1                  ; "le palle del cane" (all four 7s) bonus
 Opalle:    defs 1
 SlColF:    defs 2                  ; card-slide: column (8.8 fixed point)
@@ -3563,6 +3566,29 @@ ResolvePlay:
     call AddToPile
     ld a,(TableN)
     ld (Removed),a               ; stash oldN (pre-compaction) to size the removal for ZipCompact
+    ; --- save the pre-removal fan for RemoveCascade (CompactTable is about to wipe the taken cards
+    ; from Table[]; the cascade needs their ids to repaint the shrinking fan tear-free) ---
+    ld hl,Table
+    ld de,RmTab
+    ld bc,16
+    ldir                         ; RmTab[] = the full pre-removal table
+    ld a,(RevealInPlace)
+    or a
+    jr nz,.rmip                  ; crowded capture -> played card stayed in hand, not on the band
+    ld a,(Played)
+    ld c,a
+    ld hl,RmTab
+    ld a,(TableN)
+    call addHLA
+    ld (hl),c                    ; RmTab[oldN] = the played card (drawn on the band at the far slot)
+    ld a,(TableN)
+    inc a
+    ld (RmN),a
+    jr .rmsv
+.rmip:
+    ld a,(TableN)
+    ld (RmN),a
+.rmsv:
     call CaptureZipOld           ; record surviving cards' OLD columns (pre-compaction)
     call CompactTable
     ld a,(Removed)               ; Removed = oldN - newN  (ace sweep -> 5+; the tearing case)
@@ -4143,81 +4169,136 @@ BlitSlice:
 ; survivor), small enough to finish in the top border ahead of the raster, so every frame is
 ; tear-free by the same proven single-card path -- with NO hardware-specific timing. Tony's idea.
 ; Pre: the shadow already holds the post-removal board (taken cards blank, survivors at old cols).
+; RemoveCascade: peel the taken cards off the table one per frame, RIGHT-TO-LEFT, RESPECTING THE
+; OVERLAP. Naive in-place erasing (restore felt) can't: cards overlap, so clearing one card's
+; footprint either eats the next card's visible edge (L->R) or exposes the neighbour's hidden strip
+; as bare felt (R->L) -- a flashing half-card either way. Instead, each frame we repaint the WHOLE
+; fan of cards STILL PRESENT into the shadow and delta-blit only the change: when the rightmost
+; card vanishes, its left neighbour is redrawn complete and becomes the clean new rightmost. Every
+; frame shows a whole fan, one card shorter. Uses RmTab[]/RmN saved pre-CompactTable + CapSel[].
 RemoveCascade:
     ld a,(TableN)                ; oldN = newN + Removed
     ld b,a
     ld a,(Removed)
     add a,b
-    ld (Tmp2),a                  ; Tmp2 = oldN (loop bound)
-    ld (TableN),a                ; temporarily -> TableStep reads (TableN)
-    call TableStep               ; A = the column step of the PRE-removal layout
-    ld (Tmp1),a                  ; Tmp1 = step_old
+    ld (Tmp2),a                  ; Tmp2 = oldN
+    ld (TableN),a                ; TableStep reads (TableN)
+    call TableStep
+    ld (Tmp1),a                  ; Tmp1 = step_old (pre-removal column step)
     ld a,b
     ld (TableN),a                ; restore newN
+    ld a,(RmN)
+    ld (RmCut),a                 ; RmCut = RmN: nothing removed yet (all to-remove indices < RmN)
+.rcframe:
+    ld a,(RmCut)                 ; find M = highest to-remove index strictly below RmCut
+.rcfind:
+    or a
+    jp z,.rcdone                 ; nothing left to remove -> survivors are all that's drawn
+    dec a
+    ld c,a
+    call IsToRemove
+    or a
+    jr nz,.rcfound               ; this index is a taken card (or the played card) -> remove it
+    ld a,c                       ; survivor -> keep scanning down
+    jr .rcfind
+.rcfound:
+    ld a,c
+    ld (RmCut),a                 ; RmCut = M: indices >= M are now gone
+    call ClearShadowBand         ; wipe the table band in the shadow to felt
+    ld a,0x20
+    ld (ScrOfs),a                ; ...then repaint the present fan into the shadow
     xor a
-    ld (Tmp0),a                  ; Tmp0 = index = 0
-.loop:
+    ld (Tmp0),a                  ; k = 0
+.rcdraw:
     ld a,(Tmp0)
-    ld hl,Tmp2
+    ld hl,RmN
     cp (hl)
-    jr nc,.done                  ; index >= oldN -> all taken cards gone
-    ld hl,CapSel                 ; was this slot captured?
+    jr nc,.rcblt                 ; drawn all RmN slots
+    ld a,(Tmp0)                  ; present[k]?  survivor -> yes;  to-remove -> only if k < RmCut
+    ld c,a
+    call IsToRemove
+    or a
+    jr z,.rcpres                 ; survivor -> always present
+    ld a,(Tmp0)
+    ld hl,RmCut
+    cp (hl)
+    jr nc,.rcdnext               ; to-remove AND k >= RmCut -> already peeled -> skip
+.rcpres:
+    ld a,(Tmp0)
+    call ColOfK
+    ld d,a                       ; D = col(k)
+    ld e,8                       ; E = char-row 8
+    ld hl,RmTab
     ld a,(Tmp0)
     call addHLA
-    ld a,(hl)
-    or a
-    jr z,.next                   ; survivor -> leave it in place
-    ld a,(Tmp1)                  ; col = 1 + step_old*index, clamped to 25 (Harlequin col-31 edge)
-    ld d,a
-    ld a,(Tmp0)
-    ld e,a
-    ld a,1
-    inc e
-.cm:
-    dec e
-    jr z,.cmd
-    add a,d
-    jr .cm
-.cmd:
-    cp 26
-    jr c,.cok
-    ld a,25
-.cok:
-    ld d,a                       ; D = col
-    ld e,8                       ; E = char-row 8 (table band top)
-    halt                         ; one-card erase finishes ahead of the beam -> tear-free
-    call EraseCardRegion         ; restore shadow (felt / overlapping survivor) -> card vanishes
-.next:
+    ld a,(hl)                    ; A = card id at slot k (DE preserved by addHLA)
+    call BlitCard                ; draw onto the shadow (left-to-right -> correct overlap)
+.rcdnext:
     ld hl,Tmp0
     inc (hl)
-    jr .loop
-.done:
-    ; A non-crowded capture (RevealInPlace=0) drew the played card on the table at the far slot
-    ; (index oldN) via ShowCapture; it's gone to the pile now, so erase that slot too. A crowded
-    ; capture kept it flashing in the hand -> nothing extra on the table band.
-    ld a,(RevealInPlace)
-    or a
-    ret nz
-    ld a,(Tmp1)                  ; col = 1 + step_old*oldN, clamped 25
-    ld d,a
-    ld a,(Tmp2)
+    jr .rcdraw
+.rcblt:
+    xor a
+    ld (ScrOfs),a                ; back to the live screen
+    ld a,8
+    ld (DBstart),a
+    ld a,16
+    ld (DBend),a
+    call DeltaBlit               ; HALTs internally -> one card peels per frame, tear-free
+    jp .rcframe
+.rcdone:
+    xor a
+    ld (ScrOfs),a
+    ret
+
+; ClearShadowBand: shadow table band (char-rows 8-15) -> felt (bitmap 0x00, attr 0x28 = cyan).
+; The middle screen third is one contiguous 0x800 bitmap block; attrs are 8 rows x 32 = 0x100.
+ClearShadowBand:
+    ld hl,0x6800                 ; shadow bitmap, rows 8-15
+    ld de,0x6801
+    ld bc,0x07FF
+    ld (hl),0
+    ldir
+    ld hl,0x7900                 ; shadow attr, rows 8-15
+    ld de,0x7901
+    ld bc,0x00FF
+    ld (hl),0x28
+    ldir
+    ret
+
+; IsToRemove: C = fan index -> A = 1 if that slot is a card to peel away (a captured table card, or
+; the played card sitting on the band at index oldN), else 0 (a survivor that stays).
+IsToRemove:
+    ld a,(Tmp2)                  ; oldN
+    cp c
+    jr z,.itrplayed              ; index == oldN -> the played card
+    ld hl,CapSel                 ; index < oldN -> a table slot; CapSel[index] = 1 if captured
+    ld a,c
+    call addHLA
+    ld a,(hl)
+    ret
+.itrplayed:
+    ld a,(RevealInPlace)         ; played card is on the band only for a non-crowded capture
+    xor 1
+    and 1
+    ret
+
+; ColOfK: A = fan index -> A = column 1 + step_old*index, clamped to 25 (Harlequin col-31 edge law).
+ColOfK:
     ld e,a
+    ld a,(Tmp1)                  ; step_old
+    ld d,a
     ld a,1
     inc e
-.pcm:
+.cokl:
     dec e
-    jr z,.pcmd
+    jr z,.cokd
     add a,d
-    jr .pcm
-.pcmd:
+    jr .cokl
+.cokd:
     cp 26
-    jr c,.pcok
+    ret c
     ld a,25
-.pcok:
-    ld d,a
-    ld e,8
-    halt
-    call EraseCardRegion
     ret
 
 ; DrawZipCards: draw each surviving table card (Table[k]) at column ZipCur[k], row 8,
