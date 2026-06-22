@@ -1052,3 +1052,30 @@ handler calls preventDefault on every non-meta key. New tools/capz80.py recaptur
 Pushed the flash-stop (f8f7567) and the site fix (b406111); redeployed. Both domains serve the
 flash-change downloads (tap 36236) + recaptured play-a2/play-b2.z80 + the keyboard-fixed index.html
 + the gold-header results.png. Live keyboard verified end-to-end in a real browser.
+
+## VINCITORE attribute-shimmer (2026-06-22, branch win-shimmer -> merged + deployed)
+The win screen now shimmers, attribute-only (bitmap untouched -> tear-free, the rays/banner/stars
+recoloured gold<->white). Prototyped host-side first (tools/win_shimmer_proto.py -> win_proto/ GIFs;
+Tony chose radial rays + VINCITORE banner light-sweep + star twinkle + a one-time ray-ring BURST then
+a slow/stately SETTLE). At win-screen entry BuildShimmer backs the 768 win attrs up to the FREE shadow
+buffer at 0x6000 (NOT the deck at 0xC000 -- needed for play-again) and builds a per-cell descriptor
+table at 0x6300 (kind: RAY by radial ring-index via dx^2+dy^2 [SQTab] + isqrt / BANNER by column /
+STAR by phase / static). ShimmerStep runs the timeline; ApplyShimmer paints. State ORG slid
+0xB800->0xBA00 (~490 B). Lives in WaitWinner (replaced the old border-tricolore cycle; border now
+steady black). The demo's victory shimmers too (.demo branch, ~8s timeout). CAPS+SYM+W cheat
+(CheckWinCheat) jumps straight to the win screen, from the menu + in-game. Match-end idle->demo bumped
+60s -> 5 min.
+
+THE REAL-HARDWARE BUG (Tony CRT: "looked like a crash, attributes all over the place"). TWO bugs the
+emulator hid: (1) ClassifyCell clobbered HL (the build loop's base pointer) + B (cx) -> every cell
+after the first misclassified -> random cells lit (SH table static=593/ray=72, impossible rings
+26-63). Fixed with push/pop hl+bc around the call -> ray=253/banner=123/star=15, rings 9-18. (2)
+ApplyShimmer wrote all 768 attrs straight to the live 0x5800 over >1 frame, so the CRT beam read a
+half-updated buffer EVERY frame = churn. ZEsarUX reads memory as a clean per-frame snapshot, so it
+NEVER showed either bug -- both only visible on real hardware. Fix: build the frame OFF-SCREEN at
+0x6600, then BlitAttrs LDIRs it to 0x5800 right after a HALT, chasing ahead of the raster (672 T/row
+vs 1792 T/row) -> tear-free. LESSON: ZEsarUX screenshots = a memory snapshot, so they hide BOTH
+beam-tearing AND register-clobber-driven garbage that "happens to look shimmery"; full-screen attr
+animation MUST be double-buffered + beam-chased, and a clobbered classifier needs the SH table
+dumped+counted to catch (don't trust the screenshot). Tony: "Looks awesome!" -> merged/pushed/deployed
+(both domains serve tap 36814 + recaptured snapshots; in-browser visitors can CAPS+SYM+W to see it).
