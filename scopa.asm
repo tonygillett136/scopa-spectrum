@@ -17,11 +17,11 @@ FASTSIM = 1
 FASTSIM = 1
     ENDIF
 ; ---- state ----
-; State block (code ceiling). Slid up to 0xB700 to hand code room for the Esperto card-counting AI
-; (endgame minimax), the deal cascade, the shift-before-zip drop, and the one-card-per-frame ace-sweep
-; removal (RemoveCascade). State uses ~0x230B (ends ~0xB92F); stack at 0xBFF0 leaves ~1.7KB below
-; it for the stack + the minimax search frames (the minimax node frames are pre-allocated in state).
-    ORG 0xB700
+; State block (code ceiling). Slid up to 0xB800 to hand code room for the Esperto card-counting AI
+; (endgame minimax), the deal cascade, RemoveCascade, and the Rockwell banners + SweepBanner shimmer.
+; State spans ~0x22B (ends ~0xBA2B); stack at 0xBFF0 leaves ~1.4KB below it for the stack + the
+; minimax search frames (the minimax node frames are pre-allocated in state, not on the stack).
+    ORG 0xB800
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -78,6 +78,10 @@ HumanTurn: defs 1                  ; 1 only while the player is choosing -> curs
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
+NapShown:  defs 1                  ; 1 once the napola (ace+2+3 of coins) celebration fired this round
+BnBase:    defs 2                  ; SweepBanner: attr base addr of the banner
+BnCol:     defs 1                  ; SweepBanner: current light-sweep column
+BnPass:    defs 1                  ; SweepBanner: remaining passes
 Ppalle:    defs 1                  ; "le palle del cane" (all four 7s) bonus
 Opalle:    defs 1
 SlColF:    defs 2                  ; card-slide: column (8.8 fixed point)
@@ -580,6 +584,68 @@ Start:
     ld de,0                      ; 65536 samples (~2.6s) then repeat -> a continuous note
     call PlaySamples
     jr .h56
+    ENDIF
+    IF TESTMODE == 57
+    ; banner-sweep preview: show SCOPA! (or set TM58 for NEAPOLITAN) and LOOP the light-sweep so
+    ; a screenshot reliably catches a glint frame. Confirms the Rockwell art + the sweep.
+    call ClsBlack
+    ld hl,ScopaBanner
+    ld a,9
+    call BlitBanner
+    ei
+.s57:
+    ld d,9
+    ld e,1
+    call SweepBanner
+    jr .s57
+    ENDIF
+    IF TESTMODE == 58
+    call ClsBlack
+    ld hl,NeapolitanBanner
+    ld a,9
+    call BlitBanner
+    ei
+.s58:
+    ld d,9
+    ld e,1
+    call SweepBanner
+    jr .s58
+    ENDIF
+    IF TESTMODE == 59
+    ; napola-at-achievement: pile already holds ace+2 of coins; capture the 3 of coins -> the
+    ; trio completes -> ShowNeapolitan must fire mid-game (overlay + 2 sweeps).
+    xor a
+    ld (NapShown),a
+    ld (OPileN),a
+    ld (Cursor),a
+    ld (HumanTurn),a
+    ld (DropPreShift),a
+    ld (RevealInPlace),a
+    ld hl,PPile
+    ld (hl),0                    ; ace of coins (id 0) already captured
+    inc hl
+    ld (hl),1                    ; 2 of coins (id 1) already captured
+    ld a,2
+    ld (PPileN),a
+    ld a,2
+    ld (Table),a                 ; table = 3 of coins (id 2, value 3)
+    ld a,35
+    ld (Table+1),a               ; + 6 of bastoni (so the capture does NOT clear the table -> no scopa)
+    ld a,2
+    ld (TableN),a
+    ld a,12                      ; hand = 3 of coppe (id 12, value 3) -> captures only the 3 of coins
+    ld (Player),a
+    ld a,0xFF
+    ld (Player+1),a
+    ld (Player+2),a
+    ld a,20
+    ld (DeckPos),a
+    call PaintAll
+    ld a,12
+    ld c,0
+    call ResolvePlay             ; -> trio complete -> jp ShowNeapolitan
+.h59:
+    jr .h59
     ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
@@ -1658,11 +1724,8 @@ RunMatch:
     call DealCascade             ; deal the board in one card at a time (tear-free)
     call PlayRound
     call ScoreRound
-    ld a,(Pnapola)
-    ld b,a
-    ld a,(Onapola)
-    or b
-    call nz,ShowNeapolitan       ; brief NEAPOLITAN screen + rising scale
+    ; (napola is now celebrated mid-round the instant the ace+2+3 of coins is completed, in
+    ;  ResolvePlay -- not here at round end; the points still tally on the scores screen.)
     call ShowResults
     call WaitSpaceOrDemo
     ld a,(Leader)                ; the deal alternates each round
@@ -1833,6 +1896,7 @@ NewRound:
     ld (OScopa),a
     ld (Cursor),a
     ld (LastCap),a
+    ld (NapShown),a              ; re-arm the napola celebration for the new round
     call InitDeck
     call Shuffle
     call DealRound
@@ -3558,7 +3622,30 @@ ResolvePlay:
                                  ; (no crowded-table flash: the slide already shows where the
                                  ;  card lands; the hardware-FLASH blink read as a glitch)
 .done:
-    ret
+    ; --- napola achieved? celebrate the INSTANT the capturing side completes the ace+2+3 of coins
+    ; (ids 0,1,2), rather than at round end. Fires once per round (NapShown). Captured cards are
+    ; never lost, so this is monotonic; a drop can't complete it, so reaching here on a drop is a
+    ; harmless re-check. The points are still tallied at round end on the scores screen. ---
+    ld a,(NapShown)
+    or a
+    ret nz                       ; already celebrated this round
+    ld a,(Who)
+    ld (NapWhich),a              ; check the side that just captured
+    ld c,0
+    call NapHas
+    or a
+    ret z                        ; no ace of coins held -> trio not complete
+    ld c,1
+    call NapHas
+    or a
+    ret z
+    ld c,2
+    call NapHas
+    or a
+    ret z                        ; missing one of ace/2/3 of coins
+    ld a,1
+    ld (NapShown),a
+    jp ShowNeapolitan            ; tail-call: the celebration, then ret to ResolvePlay's caller
 .droppre:                        ; shift-before-zip drop: room made + card already slid to slot
     ld hl,Table                  ; oldN (= TableN-1). Just drop it into the placeholder.
     ld a,(TableN)
@@ -4961,14 +5048,16 @@ ScaleTbl: defb 250,222,198,187,167,148,132,125,118
 
 ; ShowNeapolitan: brief celebratory screen with NEAPOLITAN in big letters + the scale
 ShowNeapolitan:
-    xor a
-    ld (ScrOfs),a
-    call ClsBlack
-    ld hl,NeapolitanBanner       ; big TrueType "NEAPOLITAN" (same style as SCOPA!)
+    call PaintAll                ; OVERLAY on the board (was ClsBlack -> a full-black interstitial);
+    ld hl,NeapolitanBanner       ; now fired the instant the ace+2+3-of-coins is completed mid-game
     ld a,9
     call BlitBanner
     call NeapolitanSound
-    ld b,3
+    ei                           ; SweepBanner is HALT-paced
+    ld d,9
+    ld e,2                       ; two passes -- a bigger flourish for the rarer napola
+    call SweepBanner
+    ld b,1
     call Delay
     ret
 
@@ -7041,13 +7130,88 @@ ShowCapture:
 ; ShowScopa: flash a SCOPA! banner across the middle.
 ShowScopa:
     call PaintAll
-    ld hl,ScopaBanner            ; big TrueType "SCOPA!" banner across the middle
+    ld hl,ScopaBanner            ; big Rockwell "SCOPA!" banner across the middle
     ld a,9
     call BlitBanner
     ld hl,ScopaJingle
     call PlayJingle
-    ld b,3
-    call Delay
+    ei                           ; SweepBanner is HALT-paced
+    ld d,9                       ; banner top char-row
+    ld e,1                       ; one quick light-sweep pass
+    call SweepBanner
+    ld b,1
+    call Delay                   ; brief hold on the gold banner
+    ret
+
+; SweepBanner: D = banner top char-row, E = number of light-sweep passes. A bright-WHITE 3-cell
+; band sweeps left->right across the gold (0x46) banner attrs (4 char-rows x 32 cols), one column
+; per frame (HALT-paced -> ~0.7 s/pass); the banner rests gold after. Callers ei first. Only the
+; lit letter cells visibly change (off-letter cells are black paper). Clobbers everything.
+SweepBanner:
+    ld a,e
+    ld (BnPass),a
+    ld a,d                       ; HL = 0x5800 + row*32 (attr base)
+    ld h,0
+    ld l,a
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld a,h
+    add a,0x58
+    ld h,a
+    ld (BnBase),hl
+.swpass:
+    xor a
+    ld (BnCol),a
+.swstep:
+    halt
+    ld hl,(BnBase)               ; gold-fill the 4x32 banner attr region
+    ld b,128
+.swgold:
+    ld (hl),0x46
+    inc hl
+    djnz .swgold
+    call .band                   ; overlay the white band at the current column
+    ld hl,BnCol
+    inc (hl)
+    ld a,(hl)
+    cp 35                        ; sweep 0..34 (enters from the left edge, exits the right)
+    jr c,.swstep
+    ld hl,BnPass
+    dec (hl)
+    jr nz,.swpass
+    ld hl,(BnBase)               ; rest gold (clear the last band)
+    ld b,128
+.swrest:
+    ld (hl),0x46
+    inc hl
+    djnz .swrest
+    ret
+.band:                           ; white (0x47) at cols (BnCol-1, BnCol, BnCol+1) over 4 rows
+    ld a,(BnCol)
+    dec a                        ; first col = centre-1
+    ld c,3
+.bcol:
+    cp 32
+    jr nc,.bnext                 ; col >= 32 (or 0xFF underflow) -> off-screen, skip
+    ld hl,(BnBase)
+    ld e,a
+    ld d,0
+    add hl,de                    ; HL = attr base + col
+    ld (hl),0x47
+    ld de,32
+    add hl,de
+    ld (hl),0x47
+    add hl,de
+    ld (hl),0x47
+    add hl,de
+    ld (hl),0x47
+.bnext:
+    inc a
+    dec c
+    jr nz,.bcol
     ret
 
 ; BlitBanner: HL = banner source (256x32 linear bitmap + 128 attr), A = top char-row.
