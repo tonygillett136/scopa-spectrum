@@ -46,8 +46,8 @@
     <h2 class="section-title">Play it now</h2>
     <div class="tricolore-rule"></div>
     <p class="section-intro">No tape, no emulator to install — the real Spectrum binary runs right here,
-      in a JavaScript Spectrum. Press <strong>▶</strong> and it opens on the title screen; click the
-      screen to give it the keyboard, then press <kbd>SPACE</kbd> to start.</p>
+      in a JavaScript Spectrum. Click the <strong>▶ Play</strong> button under the screen to start it,
+      then press <kbd>SPACE</kbd> to play (O/P move, SPACE plays a card).</p>
 
     <div class="play-grid">
       <div class="emu-frame">
@@ -189,10 +189,12 @@
       machine: 48,
       zoom: 2,
       sandbox: true,
-      // autoStart: run the CPU immediately. With autoStart:false the emulator sits PAUSED
-      // (the keyboard handler is detached while paused), so keypresses are silently dropped
-      // until the user finds the Play button -- the recurring "keyboard dead" report.
-      autoStart: true,
+      // autoStart:false -- start ONLY on the user clicking JSSpeccy's own Play button. That click is
+      // a real user gesture, so start() cleanly binds the keyboard handler AND resumes the suspended
+      // AudioContext. autoStart:true ran the CPU (rAF) but left the keyboard unresponsive on real
+      // browsers (a gesture-less start); the Play-button gesture is JSSpeccy's reliable path. The
+      // page copy tells the user to press Play first.
+      autoStart: false,
       // snapshot taken at the title (the tape's silent multi-stage loader doesn't
       // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
       // NB JSSpeccy picks the loader by file EXTENSION, so a ?v= query breaks it
