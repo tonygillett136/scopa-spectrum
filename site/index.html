@@ -204,27 +204,34 @@
       // (play-a2 / play-b2) to defeat a stale cached snapshot after a recapture.
       openUrl: (Math.random() < 0.5 ? 'play-a2.z80' : 'play-b2.z80')
     });
-    // Keyboard. By default JSSpeccy binds keydown/keyup ONLY to its own appContainer (tabindex=0),
-    // which loses focus to <body> after any click -> the recurring "keyboard dead". Point its key
-    // listener at the whole document instead, via JSSpeccy's own setKeyboardEventRoot API, so keys
-    // reach it from anywhere with no focus dependency. Re-assert on ready (init binds it back to
-    // appContainer) and after the first gesture.
-    function wireKeys() {
-      try { if (emu && emu.setKeyboardEventRoot) { emu.setKeyboardEventRoot(document.documentElement); } }
-      catch (e) {}
-    }
-    if (emu && emu.onReady) { emu.onReady(wireKeys); }
-    wireKeys();
-    // Browsers gate the run loop / AudioContext behind a user gesture, so kick the emulator on the
-    // first interaction (start() is a no-op if already running) and re-assert the key routing.
-    function kick() {
-      try { if (emu && emu.start) { emu.start(); } } catch (e) {}
-      var c = host.querySelector('[tabindex]'); if (c) { c.focus(); }
-      wireKeys();
-    }
-    window.addEventListener('pointerdown', kick, { once: true });
-    window.addEventListener('touchend',    kick, { once: true });
-    window.addEventListener('keydown',     kick, { once: true });
+    // Keyboard. JSSpeccy binds keydown/keyup to its appContainer (the only [tabindex] element) and
+    // maps by e.keyCode -- but its public API exposes NO setKeyboardEventRoot, and the element only
+    // gets keys while focused; focus drifts to <body> after any click, so keys are silently lost
+    // ("keyboard dead"). Verified fix (Playwright: probe + defaultPrevented): forward every key from
+    // the whole window INTO the appContainer, preserving keyCode, so JSSpeccy's own handler runs
+    // regardless of focus. Plus keep the emulator focused on load / pointer-down as the primary path.
+    function emuEl() { return host.querySelector('[tabindex]'); }
+    function focusEmu() { var c = emuEl(); if (c) { try { c.focus(); } catch (e) {} } }
+    if (emu && emu.onReady) { emu.onReady(focusEmu); }
+    focusEmu();
+    host.addEventListener('pointerdown', focusEmu);
+    host.addEventListener('touchstart', focusEmu);
+    ['keydown', 'keyup'].forEach(function (type) {
+      window.addEventListener(type, function (e) {
+        if (e.__toEmu) { return; }                       // ignore our own re-dispatch
+        var c = emuEl();
+        if (!c || c === e.target || c.contains(e.target)) { return; }  // already headed to the emu
+        var ev = new KeyboardEvent(type, { key: e.key, code: e.code, location: e.location,
+          repeat: e.repeat, bubbles: true, cancelable: true });
+        ev.__toEmu = true;
+        try {
+          Object.defineProperty(ev, 'keyCode', { get: function () { return e.keyCode; } });
+          Object.defineProperty(ev, 'which',   { get: function () { return e.which; } });
+        } catch (_) {}
+        c.dispatchEvent(ev);
+        if (!e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); }
+      }, true);
+    });
   });
 </script>
 </body>
