@@ -1839,6 +1839,28 @@ CheckSoftReset:
     ld (DemoMode),a
     jp NewGame
 
+; CheckWinCheat: CAPS SHIFT + SYMBOL SHIFT + W held -> jump straight to the VINCITORE win screen
+; (a test shortcut for the shimmer). Polled alongside CheckSoftReset. Returns to the menu after.
+CheckWinCheat:
+    ld a,0xFE
+    in a,(0xFE)                  ; CAPS SHIFT = 0xFEFE bit 0
+    bit 0,a
+    ret nz
+    ld a,0x7F
+    in a,(0xFE)                  ; SYMBOL SHIFT = 0x7FFE bit 1
+    bit 1,a
+    ret nz
+    ld a,0xFB
+    in a,(0xFE)                  ; W = 0xFBFE bit 1
+    bit 1,a
+    ret nz
+    ld sp,0xBFF0                 ; combo -> show the win screen, then back to the menu
+    xor a
+    ld (DemoMode),a
+    call ShowWinYou
+    call WaitWinner
+    jp NewGame
+
 ; WaitSpaceOrDemo: in the demo, hold the screen ~10s (SPACE exits via DemoCheckSpace) then
 ; return so the demo plays on; otherwise behave exactly like WaitSpace.
 WaitSpaceOrDemo:
@@ -5034,6 +5056,7 @@ CountHand:
 ; =================== input ===================
 ReadKeys:
     call CheckSoftReset          ; CAPS+SYM+SPACE held -> back to the skill menu (never returns)
+    call CheckWinCheat           ; CAPS+SYM+W -> jump to the VINCITORE win screen (test cheat)
     xor a
     ld (Keys),a
     ld bc,0xDFFE
@@ -5083,6 +5106,7 @@ Delay:
     ENDIF
     call DemoCheckSpace          ; demo: a SPACE in any pause drops back to the menu (clobbers A only)
     call CheckSoftReset          ; CAPS+SYM+SPACE during an animation -> skill menu (never returns)
+    call CheckWinCheat           ; CAPS+SYM+W -> jump to the VINCITORE win screen (test cheat)
 .d1:
     ld de,0
 .d2:
@@ -5567,6 +5591,7 @@ SelectDifficulty:
     call .drawasso               ; rule toggle (row 16)
     call .drawsound              ; sound toggle (row 20)
 .w:
+    call CheckWinCheat           ; CAPS+SYM+W -> win screen (test cheat) from the menu too
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
     in a,(c)
     bit 0,a
@@ -5998,21 +6023,23 @@ WaitWinner:
     or a
     jr nz,.demo                  ; the attract demo's victory shimmers too (then continues)
 .w:                              ; a real win: shimmer until SPACE; 60s idle -> attract demo
+    call ShimmerStep             ; build the next frame off-screen (advance anim + paint to 0x6600)
     halt
-    call ShimmerStep             ; advance the burst/settle anim + repaint ray/banner/star attrs
+    call BlitAttrs               ; copy it to the screen, chasing the beam -> tear-free
     call ReadKeys
     bit 2,a
     jr nz,.gotsp                 ; SPACE -> play again
     ld hl,(23672)
-    ld de,3000                   ; no SPACE for 60s @ 50 Hz -> drop into the attract demo
+    ld de,15000                  ; no SPACE for 5 min @ 50 Hz -> drop into the attract demo
     or a
     sbc hl,de
     jr c,.w
     ld sp,0xBFF0                 ; idle timeout -> demo (reset stack; never returns)
     jp EnterDemo
 .demo:
-    halt
     call ShimmerStep
+    halt
+    call BlitAttrs
     call DemoCheckSpace          ; SPACE during the demo -> leave the demo (never returns)
     ld hl,(23672)
     ld de,400                    ; ~8s of shimmer, then continue the throwaway demo match
@@ -6056,7 +6083,11 @@ BuildShimmer:
     ld (ShCy),a
     ld a,(hl)
     ld (ShBase),a
+    push hl                      ; ClassifyCell clobbers HL (d2/SQTab) and B (star phase) --
+    push bc                      ; preserve the loop's base pointer + cx/cy across the call
     call ClassifyCell            ; -> A = SH descriptor byte
+    pop bc
+    pop hl
     ld (ix+0),a
     inc ix
     inc hl
@@ -6236,12 +6267,14 @@ ShimmerStep:
 .apply:
     jp ApplyShimmer
 
-; ApplyShimmer: walk all 768 cells (SH at 0x6300, backup at 0x6000, screen at 0x5800) and write the
-; white-or-original attribute for each, per the current RayR/RayBand/SweepX/ShF.
+; ApplyShimmer: walk all 768 cells (SH at 0x6300, backup at 0x6000) and write the white-or-original
+; attribute for each into the OFF-SCREEN frame buffer 0x6600 (per RayR/RayBand/SweepX/ShF). The
+; build takes >1 frame, so it must NOT touch the live 0x5800 -- BlitAttrs copies the finished frame
+; to the screen in one beam-chasing LDIR after a HALT, so the CRT never sees a half-updated buffer.
 ApplyShimmer:
     ld ix,0x6300
     ld hl,0x6000
-    ld de,0x5800
+    ld de,0x6600
 .asl:
     ld a,(ix+0)
     or a
@@ -6318,8 +6351,18 @@ ApplyShimmer:
     inc hl
     inc de
     ld a,d
-    cp 0x5B
+    cp 0x69                      ; frame buffer 0x6600..0x68FF done?
     jp nz,.asl
+    ret
+
+; BlitAttrs: copy the finished frame buffer (0x6600) to the screen attrs (0x5800). Issued right
+; after a HALT: the LDIR writes a char-row (~672 T) far faster than the beam descends one (1792 T),
+; so it stays ahead of the raster all the way down -> the whole attr update lands tear-free.
+BlitAttrs:
+    ld hl,0x6600
+    ld de,0x5800
+    ld bc,768
+    ldir
     ret
 
 SQTab:                           ; n^2 for n = 0..17 (|dx|<=16, |dy|<=12)
@@ -6343,7 +6386,7 @@ WaitEndOrDemo:
     bit 2,a
     jr nz,.go                    ; SPACE -> return
     ld hl,(23672)
-    ld de,3000                   ; 60s @ 50 Hz
+    ld de,15000                  ; 5 min @ 50 Hz
     or a
     sbc hl,de
     jr c,.l
