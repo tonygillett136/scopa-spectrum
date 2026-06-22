@@ -995,3 +995,38 @@ loop would be too slow) -> border held steady (cyan in-game, still black on the 
 BorderC=0). The two `or`s add 14 T (124 T -> 138 T loop), so `NoteInc` was recalibrated x138/124 to keep
 the pitch. Verified the operands patch to 0x05 (TESTMODE 56; the border itself can't be screenshotted --
 ZEsarUX flattens it). **Tony: "Looks and sounds great."**
+
+## Pretty banners + Napola-at-achievement (2026-06-22, branch pretty-banners, merged + deployed)
+Prototyped first (`tools/banner_proto.py` -> animated GIFs of three shimmer variants; Tony picked C). The
+SCOPA!/NEAPOLITAN celebration banners + the scores header are re-rendered in **Rockwell** (gold) via
+`tools/emit_banners.py`, and get a **golden light-sweep**: `SweepBanner` rolls a bright-white 3-cell band
+left->right across the banner attrs (HALT-paced ~0.7 s/pass; letters rest bright gold). Scopa = one quick
+pass, Napola = two. The **Napola now fires the instant a side completes the ace+2+3 of coins** (in
+`ResolvePlay .done` -> `ShowNeapolitan`, gated once/round by `NapShown`, reset in `NewRound`), as a board
+OVERLAY (was a black interstitial at round end); the points still tally on the scores screen. The scores
+header changed from black-on-tricolore to gold Rockwell SCOPA. State ORG slid 0xB700->0xB800.
+
+## Ace-sweep peel: respect the card overlap (2026-06-22)
+Tony (CRT): a 5+ card sweep looked like each removed card took part of its overlapping neighbour. Root
+cause: the cascade restored each taken card's footprint from the shadow (the FINAL board = felt), so the
+overlap region could never show the neighbour. v1 (repaint the whole present fan to the shadow + DeltaBlit)
+fixed the look in-emulator but on real hardware the per-frame copy overran the beam -> TORE, and was
+laboured. v2 (shipped): keep the proven single-card `EraseCardRegion` (one card's 6x8 from the shadow after
+a HALT), and if the peeled card's LEFT neighbour is ALSO a taken card, redraw just that neighbour (one
+BlitCard, pre-warmed via DecodeCardA before the HALT so it's a cache hit). Erase + redraw ~17k T, finishing
+in the top border ahead of the raster. Right-to-left; survivors need no redraw (the shadow holds them). Fast
+(1 card/frame). Needs the swept ids (gone from Table[] before the cascade) -> stashed in RmTab[]/RmN.
+
+## Tear-free CPU in-place reveal (2026-06-22)
+The crowded-table capture flips the CPU's card face-up at the very TOP of the screen (rows 0-7, ~14k T of
+ahead-of-beam slack); that reveal `BlitCard` had no frame sync, so on a cache miss the ~21k T decode could
+drift it into the beam. Added a `halt` after the pre-warm, before the reveal -> the cache-hit draw lands in
+the top border, tear-free. The removal afterwards was already synced (PaintAll/DeltaBlit).
+
+## Merge + deploy (2026-06-22)
+Merged pretty-banners -> main (becf912), pushed. Refreshed `site/` to the enhanced build: rebuilt
+tap/tzx/sna downloads + recaptured play-a/play-b.z80 at the HOW TO PLAY keywait (IFF1=1, clean PC; new
+`tools/capz80.py` drives there via the active-low key matrix and retries snapshot-save until the saved file
+verifies). Deployed via `npx wrangler pages deploy site`; both scopa-spectrum.pages.dev and the custom
+domain serve tap 36221 B / play-a.z80 33394 B. Open: the scores-header tricolore band was dropped for the
+gold look (revert on request); banner shimmer feel + the peel + CPU reveal pending Tony's CRT sign-off.
