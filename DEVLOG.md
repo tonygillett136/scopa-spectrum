@@ -1030,3 +1030,25 @@ tap/tzx/sna downloads + recaptured play-a/play-b.z80 at the HOW TO PLAY keywait 
 verifies). Deployed via `npx wrangler pages deploy site`; both scopa-spectrum.pages.dev and the custom
 domain serve tap 36221 B / play-a.z80 33394 B. Open: the scores-header tricolore band was dropped for the
 gold look (revert on request); banner shimmer feel + the peel + CPU reveal pending Tony's CRT sign-off.
+
+## Ace-sweep: stop the capture flash before the peel (2026-06-22)
+Tony (CRT): the taken cards were still showing the hardware FLASH bit (set by FlashCaptured) as the
+progressive sweep removed them. RemoveCascade now clears bit 7 across the whole table band
+(0x5900..0x59FF) and holds a brief beat before peeling, so the cards go SOLID, then sweep.
+
+## In-browser keyboard, properly fixed + browser-verified (2026-06-22)
+Recurring "keyboard dead" on the JSSpeccy embed. Root cause finally pinned with Playwright (local
+COOP/COEP server + live site): JSSpeccy binds keydown/keyup to its appContainer (the only [tabindex]
+element, appended INTO our host) and maps by e.keyCode, but the element only receives keys while
+FOCUSED, and focus drifts to <body> after any click. Its public API exposes NO setKeyboardEventRoot
+(my earlier "fix" was a no-op that also DELETED the working forwarder -> the "no difference" report).
+The verified fix: a window capture-phase forwarder that re-dispatches every key INTO the appContainer
+preserving keyCode, plus keep it focused on load/pointer-down. PROOF (live, focus forced to <body>):
+press 'o' -> forwarder fires (fwdSeen=1) -> reaches the emulator element (reachedApp=1) -> JSSpeccy
+processes it (defaultPrevented, processedApp=1). Diagnosed via a probe + the fact that JSSpeccy's
+handler calls preventDefault on every non-meta key. New tools/capz80.py recaptures the snapshots.
+
+## Deploy (2026-06-22, second wave)
+Pushed the flash-stop (f8f7567) and the site fix (b406111); redeployed. Both domains serve the
+flash-change downloads (tap 36236) + recaptured play-a2/play-b2.z80 + the keyboard-fixed index.html
++ the gold-header results.png. Live keyboard verified end-to-end in a real browser.
