@@ -17,11 +17,11 @@ FASTSIM = 1
 FASTSIM = 1
     ENDIF
 ; ---- state ----
-; State block (code ceiling). Slid up to 0xB800 to hand code room for the Esperto card-counting AI
-; (endgame minimax), the deal cascade, RemoveCascade, and the Rockwell banners + SweepBanner shimmer.
-; State spans ~0x22B (ends ~0xBA2B); stack at 0xBFF0 leaves ~1.4KB below it for the stack + the
-; minimax search frames (the minimax node frames are pre-allocated in state, not on the stack).
-    ORG 0xB800
+; State block (code ceiling). Slid up to 0xBA00 to hand code room for the Esperto AI, the deal
+; cascade, RemoveCascade, the Rockwell banners, and the VINCITORE attribute-shimmer (WinShimmer).
+; State spans ~0x237 (ends ~0xBC37); stack at 0xBFF0 leaves ~950 B below it for the stack (the
+; minimax node frames are pre-allocated in state, not on the stack, so the stack stays shallow).
+    ORG 0xBA00
 Deck:     defs 40
 Player:   defs 3
 Opp:      defs 3
@@ -85,6 +85,16 @@ BnPass:    defs 1                  ; SweepBanner: remaining passes
 RmTab:     defs 16                 ; RemoveCascade: pre-removal table ids (+ played card at oldN)
 RmN:       defs 1                  ; RemoveCascade: count of cards in the fan
 RmCut:     defs 1                  ; RemoveCascade: to-remove cards with index >= this are gone
+ShF:       defs 1                  ; WinShimmer: frame counter (ShF<BURSTLEN = the one-time ray burst)
+RayR:      defs 1                  ; WinShimmer: current ray-ring radius
+RayDir:    defs 1                  ; WinShimmer: ring breathe direction (1 / 0xFF)
+RayBand:   defs 1                  ; WinShimmer: ring half-width (wide in burst, 1 in settle)
+SweepX:    defs 1                  ; WinShimmer: VINCITORE banner light-sweep column (0xFF = off)
+ShPaceR:   defs 1                  ; WinShimmer: ray-breathe pace counter
+ShPaceS:   defs 1                  ; WinShimmer: banner-sweep pace counter
+ShCx:      defs 1                  ; WinShimmer build scratch: cell column
+ShCy:      defs 1                  ; WinShimmer build scratch: cell row
+ShBase:    defs 1                  ; WinShimmer build scratch: cell base attr
 Ppalle:    defs 1                  ; "le palle del cane" (all four 7s) bonus
 Opalle:    defs 1
 SlColF:    defs 2                  ; card-slide: column (8.8 fixed point)
@@ -613,6 +623,15 @@ Start:
     ld e,1
     call SweepBanner
     jr .s58
+    ENDIF
+    IF TESTMODE == 60
+    ; VINCITORE attribute-shimmer in the DEMO victory path (DemoMode=1) -- the case Tony hit.
+    ld a,1
+    ld (DemoMode),a
+    call ShowWinYou
+    call WaitWinner
+.h60:
+    jr .h60
     ENDIF
     IF TESTMODE == 59
     ; napola-at-achievement: pile already holds ace+2 of coins; capture the 3 of coins -> the
@@ -1818,6 +1837,28 @@ CheckSoftReset:
     ld sp,0xBFF0                 ; combo -> reset stack and return to the skill menu
     xor a
     ld (DemoMode),a
+    jp NewGame
+
+; CheckWinCheat: CAPS SHIFT + SYMBOL SHIFT + W held -> jump straight to the VINCITORE win screen
+; (a test shortcut for the shimmer). Polled alongside CheckSoftReset. Returns to the menu after.
+CheckWinCheat:
+    ld a,0xFE
+    in a,(0xFE)                  ; CAPS SHIFT = 0xFEFE bit 0
+    bit 0,a
+    ret nz
+    ld a,0x7F
+    in a,(0xFE)                  ; SYMBOL SHIFT = 0x7FFE bit 1
+    bit 1,a
+    ret nz
+    ld a,0xFB
+    in a,(0xFE)                  ; W = 0xFBFE bit 1
+    bit 1,a
+    ret nz
+    ld sp,0xBFF0                 ; combo -> show the win screen, then back to the menu
+    xor a
+    ld (DemoMode),a
+    call ShowWinYou
+    call WaitWinner
     jp NewGame
 
 ; WaitSpaceOrDemo: in the demo, hold the screen ~10s (SPACE exits via DemoCheckSpace) then
@@ -5015,6 +5056,7 @@ CountHand:
 ; =================== input ===================
 ReadKeys:
     call CheckSoftReset          ; CAPS+SYM+SPACE held -> back to the skill menu (never returns)
+    call CheckWinCheat           ; CAPS+SYM+W -> jump to the VINCITORE win screen (test cheat)
     xor a
     ld (Keys),a
     ld bc,0xDFFE
@@ -5064,6 +5106,7 @@ Delay:
     ENDIF
     call DemoCheckSpace          ; demo: a SPACE in any pause drops back to the menu (clobbers A only)
     call CheckSoftReset          ; CAPS+SYM+SPACE during an animation -> skill menu (never returns)
+    call CheckWinCheat           ; CAPS+SYM+W -> jump to the VINCITORE win screen (test cheat)
 .d1:
     ld de,0
 .d2:
@@ -5548,6 +5591,7 @@ SelectDifficulty:
     call .drawasso               ; rule toggle (row 16)
     call .drawsound              ; sound toggle (row 20)
 .w:
+    call CheckWinCheat           ; CAPS+SYM+W -> win screen (test cheat) from the menu too
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
     in a,(c)
     bit 0,a
@@ -5965,50 +6009,364 @@ ShowScoreAndPrompt:
 
 ; WaitWinner: tricolore border shimmer until SPACE (celebratory match-win wait)
 WaitWinner:
-    ld a,(DemoMode)
-    or a
-    jp nz,WaitSpaceOrDemo        ; demo: a timed 10s hold instead of the shimmer-until-SPACE
     call ReadKeys
     or a
     jr nz,WaitWinner             ; drain any held keys first
-    ei                           ; ensure the 50 Hz interrupt is ticking the idle timer
+    xor a
+    out (254),a                  ; steady black border frames the shimmering VINCITORE image
+    ld (BorderC),a
+    call BuildShimmer            ; back up the win attrs + build the per-cell shimmer table
+    ei                           ; 50 Hz interrupt ticks the idle timer + paces the shimmer
     ld hl,0
-    ld (23672),hl                ; reset the 60s "no SPACE -> attract demo" timer
-    ld c,0
-.w:
-    ld a,c
-    and 3
-    ld hl,TriCol
-    call addHLA
-    ld a,(hl)
-    out (254),a                  ; green / white / red / white shimmer
-    inc c
-    ld de,0xA000
-.d:
-    dec de
-    ld a,d
-    or e
-    jr nz,.d
+    ld (23672),hl                ; reset the idle timer
+    ld a,(DemoMode)
+    or a
+    jr nz,.demo                  ; the attract demo's victory shimmers too (then continues)
+.w:                              ; a real win: shimmer until SPACE; 60s idle -> attract demo
+    call ShimmerStep             ; build the next frame off-screen (advance anim + paint to 0x6600)
+    halt
+    call BlitAttrs               ; copy it to the screen, chasing the beam -> tear-free
     call ReadKeys
     bit 2,a
     jr nz,.gotsp                 ; SPACE -> play again
-    ld hl,(23672)                ; no SPACE for 60s -> drop into the attract demo
-    ld de,3000                   ; 60s @ 50 Hz
+    ld hl,(23672)
+    ld de,15000                  ; no SPACE for 5 min @ 50 Hz -> drop into the attract demo
     or a
     sbc hl,de
-    jr c,.w                      ; under 60s -> keep shimmering
+    jr c,.w
     ld sp,0xBFF0                 ; idle timeout -> demo (reset stack; never returns)
-    xor a
-    out (254),a
     jp EnterDemo
+.demo:
+    call ShimmerStep
+    halt
+    call BlitAttrs
+    call DemoCheckSpace          ; SPACE during the demo -> leave the demo (never returns)
+    ld hl,(23672)
+    ld de,400                    ; ~8s of shimmer, then continue the throwaway demo match
+    or a
+    sbc hl,de
+    jr c,.demo
+    ret
 .gotsp:
-    xor a
-    out (254),a                  ; restore black border
-.fin:
     call ReadKeys
     or a
-    jr nz,.fin
+    jr nz,.gotsp                 ; drain SPACE
     ret
+
+; =================== VINCITORE attribute-shimmer ===============================================
+; ALL attribute-only (the win bitmap is never touched -> tear-free + cheap, ~768 attr writes/frame).
+; The shadow buffer at 0x6000 is free at the win screen (no gameplay; rebuilt next match) -- NOT the
+; deck at 0xC000 (that's needed for play-again). BuildShimmer backs up the 768 win attrs to 0x6000
+; and builds a per-cell descriptor table at 0x6300: byte = (kind<<6)|param, where
+; kind 1=RAY (param=radial ring-index, lit when |ring-RayR|<=RayBand), 2=BANNER (param=column, lit
+; by the L->R SweepX glint), 3=STAR (param=phase, twinkles), 0=static. ShimmerStep runs the timeline
+; (one-time ray-ring BURST then a slow breathe + banner sweep + twinkle) and ApplyShimmer repaints.
+RHALO2  = 88                     ; cells with dx^2+dy^2 < this are inside the halo (the king) = static
+RHALORING = 10                   ; ray-breathe inner ring (just outside the halo)
+MAXRING = 20                     ; ray-breathe outer ring
+BURSTLEN = 15                    ; frames of the one-time outward ray-ring burst
+
+BuildShimmer:
+    ld hl,0x5800
+    ld de,0x6000
+    ld bc,768
+    ldir                         ; backup the 768 win attrs into the (free) shadow buffer
+    ld ix,0x6300                 ; SH descriptor dest
+    ld hl,0x6000                 ; base-attr source
+    ld c,0                       ; cy
+.brow:
+    ld b,0                       ; cx
+.bcol:
+    ld a,b
+    ld (ShCx),a
+    ld a,c
+    ld (ShCy),a
+    ld a,(hl)
+    ld (ShBase),a
+    push hl                      ; ClassifyCell clobbers HL (d2/SQTab) and B (star phase) --
+    push bc                      ; preserve the loop's base pointer + cx/cy across the call
+    call ClassifyCell            ; -> A = SH descriptor byte
+    pop bc
+    pop hl
+    ld (ix+0),a
+    inc ix
+    inc hl
+    inc b
+    ld a,b
+    cp 32
+    jr c,.bcol
+    inc c
+    ld a,c
+    cp 24
+    jr c,.brow
+    xor a                        ; init the animation state
+    ld (ShF),a
+    ld (ShPaceR),a
+    ld (ShPaceS),a
+    ld a,RHALORING
+    ld (RayR),a
+    ld a,1
+    ld (RayDir),a
+    ld a,2
+    ld (RayBand),a
+    ld a,0xFF
+    ld (SweepX),a                ; banner sweep off until the settle phase
+    ret
+
+; ClassifyCell: reads ShCx/ShCy/ShBase -> A = SH descriptor byte.
+ClassifyCell:
+    ld a,(ShCx)                  ; |dx| -> dx^2 (SQTab)
+    sub 16
+    jp p,.dxp
+    neg
+.dxp:
+    add a,a
+    ld e,a
+    ld d,0
+    ld hl,SQTab
+    add hl,de
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    push de                      ; dx^2
+    ld a,(ShCy)                  ; |dy| -> dy^2
+    sub 11
+    jp p,.dyp
+    neg
+.dyp:
+    add a,a
+    ld e,a
+    ld d,0
+    ld hl,SQTab
+    add hl,de
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    pop hl                       ; dx^2
+    add hl,de                    ; HL = d2 = dx^2 + dy^2
+    push hl
+    ld de,RHALO2
+    or a
+    sbc hl,de
+    pop hl                       ; HL = d2
+    jr c,.static                 ; inside the halo -> static
+    ld a,(ShBase)                ; gold? (bright AND ink==6 or paper==6)
+    bit 6,a
+    jr z,.notgold
+    and 7
+    cp 6
+    jr z,.gold
+    ld a,(ShBase)
+    and 0x38
+    cp 0x30
+    jr z,.gold
+.notgold:
+    ld a,(ShBase)                ; star? white ink (7) in a black gap, above the banner
+    and 7
+    cp 7
+    jr nz,.static
+    ld a,(ShCy)
+    cp 20
+    jr nc,.static
+    ld a,(ShCx)                  ; phase = (cx*3 + cy) & 15
+    ld b,a
+    add a,a
+    add a,b
+    ld b,a
+    ld a,(ShCy)
+    add a,b
+    and 15
+    or 0xC0                      ; kind 3 = star
+    ret
+.gold:
+    ld a,(ShCy)
+    cp 20
+    jr c,.ray
+    ld a,(ShCx)                  ; banner: kind 2, param = column
+    and 0x3F
+    or 0x80
+    ret
+.ray:
+    call isqrt                   ; HL=d2 -> A = ring index
+    and 0x3F
+    or 0x40                      ; kind 1 = ray
+    ret
+.static:
+    xor a
+    ret
+
+isqrt:                           ; HL = n -> A = floor(sqrt(n))   (subtract successive odd numbers)
+    xor a
+    ld de,1
+.iq:
+    or a
+    sbc hl,de
+    ret c
+    inc a
+    inc de
+    inc de
+    jr .iq
+
+; ShimmerStep: advance the timeline by one frame, then repaint.
+ShimmerStep:
+    ld a,(ShF)
+    inc a
+    ld (ShF),a
+    cp BURSTLEN
+    jr nc,.settle
+    add a,6                      ; BURST: RayR = ShF+6 expands outward, wide band, banner off
+    ld (RayR),a
+    ld a,2
+    ld (RayBand),a
+    ld a,0xFF
+    ld (SweepX),a
+    jp ApplyShimmer
+.settle:
+    ld a,1
+    ld (RayBand),a
+    ld a,(SweepX)                ; first settle frame: kick SweepX from 0xFF to 0
+    inc a
+    jr nz,.s1
+    ld (SweepX),a
+.s1:
+    ld hl,ShPaceR                ; ray breathe every SETTLEPACE frames
+    inc (hl)
+    ld a,(hl)
+    cp 4
+    jr c,.nray
+    ld (hl),0
+    ld a,(RayDir)
+    ld b,a
+    ld a,(RayR)
+    add a,b
+    ld (RayR),a
+    cp MAXRING
+    jr c,.chklo
+    ld a,0xFF
+    ld (RayDir),a
+    jr .nray
+.chklo:
+    cp RHALORING
+    jr nc,.nray
+    ld a,1
+    ld (RayDir),a
+.nray:
+    ld hl,ShPaceS                ; banner sweep every SWEEPPACE frames
+    inc (hl)
+    ld a,(hl)
+    cp 3
+    jr c,.apply
+    ld (hl),0
+    ld a,(SweepX)
+    inc a
+    cp 36
+    jr c,.swok
+    xor a
+.swok:
+    ld (SweepX),a
+.apply:
+    jp ApplyShimmer
+
+; ApplyShimmer: walk all 768 cells (SH at 0x6300, backup at 0x6000) and write the white-or-original
+; attribute for each into the OFF-SCREEN frame buffer 0x6600 (per RayR/RayBand/SweepX/ShF). The
+; build takes >1 frame, so it must NOT touch the live 0x5800 -- BlitAttrs copies the finished frame
+; to the screen in one beam-chasing LDIR after a HALT, so the CRT never sees a half-updated buffer.
+ApplyShimmer:
+    ld ix,0x6300
+    ld hl,0x6000
+    ld de,0x6600
+.asl:
+    ld a,(ix+0)
+    or a
+    jr z,.copy                   ; static
+    bit 7,a
+    jr nz,.sb                    ; banner or star
+    and 0x3F                     ; RAY: ring; lit if |ring-RayR| <= RayBand
+    ld b,a
+    ld a,(RayR)
+    sub b
+    jp p,.rp
+    neg
+.rp:
+    ld b,a
+    ld a,(RayBand)
+    cp b
+    jr c,.copy
+    jr .white
+.sb:
+    bit 6,a
+    jr nz,.star
+    and 0x3F                     ; BANNER: column; lit if |col-SweepX| < 2
+    ld b,a
+    ld a,(SweepX)
+    sub b
+    jp p,.bp
+    neg
+.bp:
+    cp 2
+    jr nc,.copy
+    jr .white
+.star:
+    and 0x3F                     ; STAR: phase; twinkle on (ShF/4 + phase)&7 < 4
+    ld b,a
+    ld a,(ShF)
+    rrca
+    rrca
+    add a,b
+    and 7
+    cp 4
+    jr nc,.staroff
+    ld a,(hl)                    ; on -> bright white dot
+    and 0x38
+    or 0x47
+    ld (de),a
+    jr .next
+.staroff:
+    ld a,(hl)                    ; off -> dot vanishes
+    and 0xF8
+    ld (de),a
+    jr .next
+.white:                          ; gold cell -> white (ink/paper 6 -> 7)
+    ld a,(hl)
+    ld c,a
+    and 7
+    cp 6
+    jr nz,.w1
+    set 0,c
+.w1:
+    ld a,c
+    and 0x38
+    cp 0x30
+    jr nz,.w2
+    set 3,c
+.w2:
+    ld a,c
+    ld (de),a
+    jr .next
+.copy:
+    ld a,(hl)
+    ld (de),a
+.next:
+    inc ix
+    inc hl
+    inc de
+    ld a,d
+    cp 0x69                      ; frame buffer 0x6600..0x68FF done?
+    jp nz,.asl
+    ret
+
+; BlitAttrs: copy the finished frame buffer (0x6600) to the screen attrs (0x5800). Issued right
+; after a HALT: the LDIR writes a char-row (~672 T) far faster than the beam descends one (1792 T),
+; so it stays ahead of the raster all the way down -> the whole attr update lands tear-free.
+BlitAttrs:
+    ld hl,0x6600
+    ld de,0x5800
+    ld bc,768
+    ldir
+    ret
+
+SQTab:                           ; n^2 for n = 0..17 (|dx|<=16, |dy|<=12)
+    dw 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225,256,289
 
 ; WaitEndOrDemo: the opponent-win (lose) end screen wait. SPACE returns (to play-again handling);
 ; 60s with no SPACE drops into the attract demo. (The round-scores screen keeps WaitSpaceOrDemo,
@@ -6028,7 +6386,7 @@ WaitEndOrDemo:
     bit 2,a
     jr nz,.go                    ; SPACE -> return
     ld hl,(23672)
-    ld de,3000                   ; 60s @ 50 Hz
+    ld de,15000                  ; 5 min @ 50 Hz
     or a
     sbc hl,de
     jr c,.l
