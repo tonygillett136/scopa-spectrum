@@ -64,13 +64,29 @@ def filmstrip(word, variant, nframes=11, scale=2):
         strip.paste(fr, (0, i*(H+4)*scale))
     return strip
 
-OUT = "/tmp"
+def animated(word, variant, scale=3):
+    """a looping GIF of the sweep so you can actually WATCH it (a full pass + a short hold)."""
+    mask = render_mask(word)
+    n = 34                                  # one cell-column per frame across the full width + margins
+    frames = []
+    for i in range(n):
+        b = -2 + i                          # band centre marches -2 .. 31
+        frames.append(frame(mask, b, variant).resize((W*scale, H*scale), Image.NEAREST))
+    frames += [frame(mask, -99, variant).resize((W*scale, H*scale), Image.NEAREST)] * 10  # rest = no glint
+    return frames
+
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "banner_proto")
+os.makedirs(OUT, exist_ok=True)
 for word, tag in [("SCOPA!", "scopa"), ("NEAPOLITAN", "neap"), ("SCOPA", "header")]:
-    # static (font only, flat bright gold) so the Rockwell shape is clear
-    s = frame(render_mask(word), -99, "A").resize((W*3, H*3), Image.NEAREST)
-    s.save(f"{OUT}/banner_{tag}_static.png")
+    frame(render_mask(word), -99, "A").resize((W*3, H*3), Image.NEAREST).save(f"{OUT}/font_{tag}.png")
 for word, tag in [("SCOPA!", "scopa"), ("NEAPOLITAN", "neap")]:
     for v in ("A", "B", "C"):
-        filmstrip(word, v).save(f"{OUT}/sweep_{tag}_{v}.png")
-print("wrote /tmp/banner_*_static.png (Rockwell font) + /tmp/sweep_{scopa,neap}_{A,B}.png (shimmer filmstrips)")
-print("variant A = bright-gold + 1-cell white glint;  variant B = warm-gold + 3-cell graded sweep")
+        filmstrip(word, v).save(f"{OUT}/filmstrip_{tag}_{v}.png")
+        fr = animated(word, v)
+        fr[0].save(f"{OUT}/sweep_{tag}_{v}.gif", save_all=True, append_images=fr[1:],
+                   duration=70, loop=0, disposal=2)
+print(f"wrote to {os.path.realpath(OUT)}/ :")
+print("  font_*.png        -- the Rockwell wordmarks (static)")
+print("  sweep_*_{A,B,C}.gif  -- ANIMATED light-sweep (open these to watch it)")
+print("  filmstrip_*.png   -- frame-by-frame stills")
+print("variant A=bright-gold+1-cell white glint;  B=warm-gold graded sweep;  C=bright-gold+3-cell white sweep")
