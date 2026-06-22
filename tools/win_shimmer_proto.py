@@ -60,9 +60,9 @@ for cy in range(24):
     for cx in range(32):
         a=ATTR[cy*32+cx]
         dist=math.hypot(cx-CX,cy-CY)
-        # black-gap cells (NOT gold rays) outside the halo that hold a few sparkle pixels
-        if dist>R_HALO and cy<BANNER_TOP and not is_gold(a) and 1<=pixcount(cx,cy)<=26:
-            STARS[(cx,cy)] = ((cx*7+cy*13)%17)/17.0      # per-cell twinkle phase
+        # white-ink dots in the black gaps (NOT gold rays) outside the halo -- Z80-friendly rule
+        if dist>R_HALO and cy<BANNER_TOP and not is_gold(a) and (a&7)==7:
+            STARS[(cx,cy)] = ((cx*7+cy*13)%16)/16.0      # per-cell twinkle phase
 def staroff(a): return a & 0xF8                          # clear ink -> the white dot vanishes
 def staron(a):  return (a & 0x38) | 0x47                 # keep paper, bright white ink (dot glows)
 
@@ -109,27 +109,25 @@ render(ATTR).save(f"{OUT}/win_base.png")
 
 # ---- the DELUXE combined sequence: one-time BURST then SETTLE (radial rays + banner sweep + twinkle)
 maxd = max(v[0] for v in RAYS.values())
-def frame_deluxe(i, N, burst=14):
+def frame_deluxe(i, N, burst=18):
     a = ATTR[:]
-    if i < burst:                                   # BURST: fast bright ring + banner flash + stars on
+    if i < burst:                                   # BURST: the ray ring ONLY (Tony's call)
         p = i/burst
-        R = R_HALO + p*(maxd-R_HALO+4); bw = 2.6
+        R = R_HALO + p*(maxd-R_HALO+4); bw = 2.4
         for (cx,cy),(dist,ang) in RAYS.items():
             if abs(dist-R) < bw: a[cy*32+cx]=lit(ATTR[cy*32+cx])
-        for (cx,cy) in BANNER: a[cy*32+cx]=litbanner(ATTR[cy*32+cx])
-        for (cx,cy) in STARS:  a[cy*32+cx]=staron(ATTR[cy*32+cx])
-    else:                                           # SETTLE: slow pulse + banner sweep + twinkle
+    else:                                           # SETTLE: slow/stately pulse + banner sweep + twinkle
         s = (i-burst)/(N-burst)
         R = R_HALO + (math.sin(s*2*math.pi - math.pi/2)*0.5+0.5)*(maxd-R_HALO+3)
         for (cx,cy),(dist,ang) in RAYS.items():
             if abs(dist-R) < 1.5: a[cy*32+cx]=lit(ATTR[cy*32+cx])
-        sweepx = (s*1.8 % 1.0)*(BMAX-BMIN+4) + BMIN - 2
+        sweepx = (s*1.2 % 1.0)*(BMAX-BMIN+5) + BMIN - 2
         for (cx,cy) in BANNER:
             if abs(cx-sweepx) < 1.5: a[cy*32+cx]=litbanner(ATTR[cy*32+cx])
         for (cx,cy),ph in STARS.items():
-            a[cy*32+cx] = staron(ATTR[cy*32+cx]) if math.sin((s*6+ph)*2*math.pi)>0.2 else staroff(ATTR[cy*32+cx])
+            a[cy*32+cx] = staron(ATTR[cy*32+cx]) if math.sin((s*4+ph)*2*math.pi)>0.25 else staroff(ATTR[cy*32+cx])
     return a
-ND=64
+ND=84
 dframes=[render(frame_deluxe(i,ND)) for i in range(ND)]
 dframes[0].save(f"{OUT}/win_deluxe.gif", save_all=True, append_images=dframes[1:], duration=70, loop=0, disposal=2)
 small=[f.resize((256,192),Image.NEAREST) for f in dframes]
