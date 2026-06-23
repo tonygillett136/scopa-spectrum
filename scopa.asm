@@ -633,6 +633,10 @@ Start:
 .h60:
     jr .h60
     ENDIF
+    IF TESTMODE == 61
+    ; jump straight into the attract demo (CPU vs CPU) -- for capturing a gameplay GIF.
+    jp EnterDemo
+    ENDIF
     IF TESTMODE == 59
     ; napola-at-achievement: pile already holds ace+2 of coins; capture the 3 of coins -> the
     ; trio completes -> ShowNeapolitan must fire mid-game (overlay + 2 sweeps).

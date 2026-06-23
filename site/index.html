@@ -43,32 +43,40 @@
 <!-- ============ PLAY ============ -->
 <section id="play" class="band band-dark">
   <div class="wrap">
-    <h2 class="section-title">Play it now</h2>
+    <h2 class="section-title">See it in action</h2>
     <div class="tricolore-rule"></div>
-    <p class="section-intro">No tape, no emulator to install — the real Spectrum binary runs right here,
-      in a JavaScript Spectrum. Click the <strong>▶ Play</strong> button under the screen to start it,
-      then press <kbd>SPACE</kbd> to play (O/P move, SPACE plays a card).</p>
+    <p class="section-intro">Real Spectrum graphics on real Spectrum hardware — the cyan felt, the
+      hand-drawn Neapolitan deck, and the golden <em>VINCITORE</em> shimmer when you win (pure
+      attribute animation, tear-free on a real ULA). Grab the tape below and load it on a 48K
+      Spectrum, a Harlequin, a DivMMC, or any emulator.</p>
 
-    <div class="play-grid">
-      <div class="emu-frame">
-        <div id="jsspeccy"></div>
-      </div>
-      <aside class="controls-card">
-        <h3>Controls</h3>
-        <ul class="keys">
-          <li><kbd>O</kbd><kbd>P</kbd><span>Move the cursor over your hand</span></li>
-          <li><kbd>SPACE</kbd><span>Play the selected card / confirm</span></li>
-          <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span>Easy / Medium / Hard / Esperto</span></li>
-          <li><kbd>5</kbd><span>Toggle the optional <em>Asso piglia tutto</em> rule</span></li>
-          <li><kbd>6</kbd><span>Sound on / off</span></li>
-          <li><kbd>H</kbd><span>How to play</span></li>
-        </ul>
-        <p class="tip">Tip: click the emulator first so it grabs the keyboard. The card you
-          play stays in your hand while you choose what to capture, so it never hides the table.
-          Leave the title screen alone for a while and the Spectrum plays itself — press
-          <kbd>SPACE</kbd> any time to take over.</p>
-      </aside>
+    <div class="shots-grid gif-grid">
+      <figure>
+        <img src="img/gameplay.gif" width="256" height="192" alt="Animated gameplay: Neapolitan cards played and captured on the cyan felt" loading="lazy">
+        <figcaption>A hand in play — it even plays itself in attract mode</figcaption>
+      </figure>
+      <figure>
+        <img src="img/shimmer.gif" width="256" height="192" alt="The VINCITORE victory screen with an animated golden sunburst shimmer" loading="lazy">
+        <figcaption>VINCITORE! — win the match and the golden rays shimmer</figcaption>
+      </figure>
     </div>
+
+    <p class="play-cta"><a class="btn btn-primary" href="#download">Download the tape</a></p>
+
+    <aside class="controls-card controls-wide">
+      <h3>Controls (when you play it)</h3>
+      <ul class="keys">
+        <li><kbd>O</kbd><kbd>P</kbd><span>Move the cursor over your hand</span></li>
+        <li><kbd>SPACE</kbd><span>Play the selected card / confirm</span></li>
+        <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span>Easy / Medium / Hard / Esperto</span></li>
+        <li><kbd>5</kbd><span>Toggle the optional <em>Asso piglia tutto</em> rule</span></li>
+        <li><kbd>6</kbd><span>Sound on / off</span></li>
+        <li><kbd>H</kbd><span>How to play</span></li>
+      </ul>
+      <p class="tip">The card you play stays in your hand while you choose what to capture, so it
+        never hides the table. Leave it idle and the Spectrum plays itself — press <kbd>SPACE</kbd>
+        to take over.</p>
+    </aside>
   </div>
 </section>
 
@@ -174,67 +182,10 @@
     <p class="foot-title">SCOPA · 48K ZX Spectrum</p>
     <p class="foot-credits">
       Game © Tony Gillett 2026 · based on an original by Angelo Colucci.<br>
-      In-browser emulation by <a href="https://github.com/gasman/jsspeccy3" rel="noopener">JSSpeccy&nbsp;3</a> (Matt Westcott, GPL&nbsp;v3).<br>
+      100% Z80 assembly for the 48K ZX Spectrum.<br>
       Card art is derived from a physical Napoletane deck and rendered in monochrome for the Spectrum.
     </p>
   </div>
 </footer>
-
-<!-- ============ EMULATOR ============ -->
-<script src="emu/jsspeccy.js"></script>
-<script>
-  window.addEventListener('DOMContentLoaded', function () {
-    var host = document.getElementById('jsspeccy');
-    var emu = JSSpeccy(host, {
-      machine: 48,
-      zoom: 2,
-      sandbox: true,
-      // autoStart:false -- start ONLY on the user clicking JSSpeccy's own Play button. That click is
-      // a real user gesture, so start() cleanly binds the keyboard handler AND resumes the suspended
-      // AudioContext. autoStart:true ran the CPU (rAF) but left the keyboard unresponsive on real
-      // browsers (a gesture-less start); the Play-button gesture is JSSpeccy's reliable path. The
-      // page copy tells the user to press Play first.
-      autoStart: false,
-      // snapshot taken at the title (the tape's silent multi-stage loader doesn't
-      // replay cleanly in JSSpeccy); two snapshots = the title-screen rotation.
-      // NB JSSpeccy picks the loader by file EXTENSION, so a ?v= query breaks it
-      // ("Unrecognised file type"); to bust a stale cached snapshot after a recapture,
-      // bump the filename suffix (play-a2.z80, ...) instead of a query string.
-      // snapshot captured at a running, interrupts-ON keywait (HOW TO PLAY) so the screen is
-      // already drawn and the key matrix is polled; two snapshots = the title rotation. JSSpeccy
-      // picks the loader by file EXTENSION (a ?v= query breaks it), so the filename is bumped
-      // (play-a2 / play-b2) to defeat a stale cached snapshot after a recapture.
-      openUrl: (Math.random() < 0.5 ? 'play-a2.z80' : 'play-b2.z80')
-    });
-    // Keyboard. JSSpeccy binds keydown/keyup to its appContainer (the only [tabindex] element) and
-    // maps by e.keyCode -- but its public API exposes NO setKeyboardEventRoot, and the element only
-    // gets keys while focused; focus drifts to <body> after any click, so keys are silently lost
-    // ("keyboard dead"). Verified fix (Playwright: probe + defaultPrevented): forward every key from
-    // the whole window INTO the appContainer, preserving keyCode, so JSSpeccy's own handler runs
-    // regardless of focus. Plus keep the emulator focused on load / pointer-down as the primary path.
-    function emuEl() { return host.querySelector('[tabindex]'); }
-    function focusEmu() { var c = emuEl(); if (c) { try { c.focus(); } catch (e) {} } }
-    if (emu && emu.onReady) { emu.onReady(focusEmu); }
-    focusEmu();
-    host.addEventListener('pointerdown', focusEmu);
-    host.addEventListener('touchstart', focusEmu);
-    ['keydown', 'keyup'].forEach(function (type) {
-      window.addEventListener(type, function (e) {
-        if (e.__toEmu) { return; }                       // ignore our own re-dispatch
-        var c = emuEl();
-        if (!c || c === e.target || c.contains(e.target)) { return; }  // already headed to the emu
-        var ev = new KeyboardEvent(type, { key: e.key, code: e.code, location: e.location,
-          repeat: e.repeat, bubbles: true, cancelable: true });
-        ev.__toEmu = true;
-        try {
-          Object.defineProperty(ev, 'keyCode', { get: function () { return e.keyCode; } });
-          Object.defineProperty(ev, 'which',   { get: function () { return e.which; } });
-        } catch (_) {}
-        c.dispatchEvent(ev);
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); }
-      }, true);
-    });
-  });
-</script>
 </body>
 </html>

@@ -146,3 +146,8 @@ footer{margin-top:20px}
   .features{grid-template-columns:1fr}
   .band{padding:54px 0}
 }
+
+/* "See it in action" GIFs + download CTA (replaced the in-browser emulator) */
+.gif-grid{max-width:760px;margin:0 auto}
+.play-cta{text-align:center;margin:34px 0 0}
+.controls-wide{max-width:600px;margin:36px auto 0}
