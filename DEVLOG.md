@@ -1079,3 +1079,16 @@ beam-tearing AND register-clobber-driven garbage that "happens to look shimmery"
 animation MUST be double-buffered + beam-chased, and a clobbered classifier needs the SH table
 dumped+counted to catch (don't trust the screenshot). Tony: "Looks awesome!" -> merged/pushed/deployed
 (both domains serve tap 36814 + recaptured snapshots; in-browser visitors can CAPS+SYM+W to see it).
+
+## In-browser emulator -> gameplay GIFs + download (2026-06-23)
+The JSSpeccy in-browser keyboard could not be made reliable for Tony's real browser (verified the
+wiring is correct -- forwarder delivers keys, JSSpeccy's handler runs -- but the game never responded,
+and I couldn't reproduce headlessly because JSSpeccy runs the CPU in a Web Worker that doesn't step
+under Playwright). Tried Qaop/JS (reliable window-level keyboard, main-thread/verifiable) but it's a
+full SPA that hijacks the URL + needs its whole app mirrored -- research preserved on branch qaop-emu
++ the memory note. DECISION (Tony): option B -- replace the embed with two looping 256x192->512 GIFs
+(img/gameplay.gif = attract demo, img/shimmer.gif = the VINCITORE shimmer; tools/capture_gif.py grabs
+N ZEsarUX frames into a GIF; TM60 shimmer, new TM61 = jp EnterDemo) shown crisp via
+image-rendering:pixelated, plus a 'Download the tape' CTA; kept the controls card. Removed JSSpeccy
+(script, emu/ core, all play-*.z80/scopa*.z80). Live + verified (both GIFs load, 0 jsspeccy refs).
+The tape downloads are unchanged and flawless on real hardware -- the actual deliverable.
