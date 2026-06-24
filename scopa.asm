@@ -74,6 +74,8 @@ OpenLeader: defs 1                ; who leads the FIRST deal of a match: random 
 Difficulty: defs 1
 Seen:      defs 5
 ScrOfs:    defs 1                  ; high-byte add: 0x00=screen, 0x20=shadow(0x6000)
+AttrOfs:   defs 1                  ; attr high-byte add (0x00=live 0x5800, 0x20=0x7800 build buffer) --
+                                   ; lets a text screen build its colours OFF-screen for a synced reveal
 HumanTurn: defs 1                  ; 1 only while the player is choosing -> cursor flashes
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
@@ -160,6 +162,15 @@ Start:
     xor (hl)
     and 1
     ld (OpenLeader),a            ; (NewMatch then alternates it each subsequent match)
+    IF TESTMODE == 62
+    ld a,7
+    ld (PMatch),a
+    ld a,11
+    ld (OMatch),a
+    call ShowWinOpp
+.h62:
+    jr .h62
+    ENDIF
     IF TESTMODE == 1
     call ScoreTestSetup
     call ScoreRound
@@ -5360,11 +5371,52 @@ ClsBlack:
     ld bc,0x17FF
     ld (hl),0
     ldir
-    ld hl,0x5800
-    ld de,0x5801
+    ld a,(AttrOfs)               ; attr clear honours AttrOfs (0x20 -> the 0x7800 build buffer)
+    add a,0x58
+    ld h,a
+    ld l,0
+    ld d,a
+    ld e,1
     ld bc,0x2FF
     ld (hl),0x07
     ldir
+    ret
+
+; ---- vblank-synced screen transitions (no horizontal-blinds paint-in). Need interrupts on. ----
+; WipeBlackSync: HALT, then blank ALL attributes to black in one LDIR -> the current screen cleanly
+; vanishes, vblank-synced. (Bitmap untouched; it's invisible under black attrs.)
+WipeBlackSync:
+    halt
+    ld hl,0x5800
+    ld de,0x5801
+    ld bc,0x2FF
+    ld (hl),0
+    ldir
+    ret
+
+; RevealAttrsSync: HALT, then copy the 0x7800 attribute BUILD BUFFER onto the live attrs in one LDIR
+; -> the new screen (drawn invisibly under black attrs) pops in, vblank-synced.
+RevealAttrsSync:
+    halt
+    ld hl,0x7800
+    ld de,0x5800
+    ld bc,768
+    ldir
+    ret
+
+; FlipShadowSync: the shadow holds a full new screen (bitmap 0x6000, attrs 0x7800). Wipe the old
+; screen to black (synced), copy the bitmap in INVISIBLY, then reveal the attrs (synced). For the
+; board scene-cut + the win image. Leaves ScrOfs=0, AttrOfs=0.
+FlipShadowSync:
+    call WipeBlackSync
+    ld hl,0x6000
+    ld de,0x4000
+    ld bc,6144
+    ldir
+    call RevealAttrsSync
+    xor a
+    ld (ScrOfs),a
+    ld (AttrOfs),a
     ret
 
 ; PrintChar: A=char, D=col, E=crow
@@ -5515,6 +5567,9 @@ ShowTitle:
 ShowHowToPlay:
     xor a
     ld (ScrOfs),a
+    call WipeBlackSync           ; wipe the previous screen to black (synced)
+    ld a,0x20
+    ld (AttrOfs),a               ; colours -> 0x7800 buffer; the rules text draws invisibly
     call ClsBlack
     ld hl,HtpLines
 .pl:
@@ -5539,6 +5594,9 @@ ShowHowToPlay:
     ld e,1
     ld a,0x46                    ; gold title row
     call FillAttrRow
+    xor a
+    ld (AttrOfs),a
+    call RevealAttrsSync         ; reveal the rules screen vblank-synced
     call WaitSpace
     ret
 
@@ -5594,14 +5652,20 @@ StrHtpBack: defb "PRESS SPACE TO GO BACK",0
 ; The titles are now ZX0 (was SCOMPACT RLE: ~58% -> ZX0 ~40%, ~2.4 KB off the tape). dzx0 is
 ; already in the build for the card art, so switching the titles to it costs no extra decoder.
 DecompressScr:
-    ld de,0x4000
-    jp dzx0_standard             ; HL=src, DE=dst; decodes exactly 6912 B then returns to our caller
+    push hl                      ; keep the ZX0 source (WipeBlackSync clobbers HL)
+    call WipeBlackSync           ; wipe the previous screen to black (synced); the title then decodes
+    pop hl                       ; INVISIBLY under black attrs (no slow bitmap paint-in) -- only the
+    ld de,0x4000                 ; compact attr tail of the ZX0 stream reveals it
+    jp dzx0_standard
 
 ; SelectDifficulty: skill via 1/2/3; key 4 toggles "asso piglia tutto" (default OFF).
 SelectDifficulty:
     xor a
     ld (ScrOfs),a
     ld (AceRule),a               ; rule starts OFF each time the menu is shown
+    call WipeBlackSync           ; wipe the previous screen to black (synced)
+    ld a,0x20
+    ld (AttrOfs),a               ; colours -> 0x7800 buffer; the menu text draws invisibly
     call ClsBlack
     ld hl,StrScopa
     ld d,11
@@ -5654,6 +5718,9 @@ SelectDifficulty:
     call FillAttrRow              ; subtitle dim cyan
     call .drawasso               ; rule toggle (row 16)
     call .drawsound              ; sound toggle (row 20)
+    xor a
+    ld (AttrOfs),a
+    call RevealAttrsSync         ; reveal the whole menu vblank-synced (no paint-in)
 .w:
     call CheckWinCheat           ; CAPS+SYM+W -> win screen (test cheat) from the menu too
     ld bc,0xF7FE                  ; keys 1,2,3,4,5
@@ -5771,6 +5838,9 @@ FillAttrRow:
     add hl,hl
     ld de,0x5800
     add hl,de
+    ld a,(AttrOfs)               ; 0x20 -> the 0x7800 off-screen build buffer (synced reveal later)
+    add a,h
+    ld h,a
     ld b,32
 .fr:
     ld (hl),c
@@ -5779,11 +5849,26 @@ FillAttrRow:
     ret
 
 ShowResults:
+    call WipeBlackSync           ; wipe the previous screen to black (synced)
+    ld a,0x20
+    ld (AttrOfs),a               ; colours -> 0x7800 buffer; the scores draw invisibly, reveal at the end
     call ClsBlack
     ld hl,ScopaFlagZX0           ; SCOPA scores-screen header
     call DecodeBanner
     ld a,0
-    call BlitBanner
+    call BlitBannerBitmap        ; header bitmap (live, invisible); gold attrs -> the build buffer
+    ld a,0x46
+    ld e,0
+    call FillAttrRow
+    ld a,0x46
+    ld e,1
+    call FillAttrRow
+    ld a,0x46
+    ld e,2
+    call FillAttrRow
+    ld a,0x46
+    ld e,3
+    call FillAttrRow
     ld hl,StrHdr
     ld d,15
     ld e,4
@@ -5948,6 +6033,9 @@ ShowResults:
     ld e,21
     ld a,0x47                    ; bright white
     call FillAttrRow
+    xor a
+    ld (AttrOfs),a
+    call RevealAttrsSync         ; reveal the whole scores screen vblank-synced (no paint-in)
     ret
 
 ; HighlightWinners: for the 5 scored categories (CatWin 0..4 at rows 6,8,10,12,14) colour
@@ -5994,7 +6082,10 @@ SetCellAttr:
     ld l,a
     ld a,h
     adc a,0x58
-    ld h,a                       ; HL = 0x5800 + row*32 + col
+    ld h,a
+    ld a,(AttrOfs)               ; honour AttrOfs -> the 0x7800 build buffer during a synced build
+    add a,h
+    ld h,a                       ; HL = 0x5800 + AttrOfs + row*32 + col
 .sc:
     ld (hl),c
     inc hl
@@ -6008,28 +6099,18 @@ ShowWinYou:                      ; player won the match -> the VINCITORE image (
     ; raster draw. 0x6000 is the free shadow region (6912 B: bitmap 0x6000-0x77FF, attrs 0x7800-0x7AFF).
     ld hl,WinZX0
     ld de,0x6000
-    call dzx0_standard           ; decode the winner screen off-screen
+    call dzx0_standard           ; decode the winner screen off-screen (bitmap 0x6000, attrs 0x7800)
     xor a
-    out (254),a                  ; black border first -> the whole frame blacks out, then the image pops
+    out (254),a                  ; black border to frame the image
     ld (BorderC),a
-    ld hl,0x5800                 ; blank the live attributes (ink=paper=black) -> bitmap copy invisible
-    ld de,0x5801
-    ld bc,0x02FF
-    ld (hl),a
-    ldir
-    ld hl,0x6000                 ; copy the bitmap onto the display (invisible: every cell is black)
-    ld de,0x4000
-    ld bc,6144
-    ldir
-    halt                         ; reveal: one HALT-synced attribute LDIR (same tear-free path as the
-    ld hl,0x7800                 ; shimmer's BlitAttrs) -> the image appears cleanly, top-to-bottom,
-    ld de,0x5800                 ; ahead of the beam, with no horizontal-blinds draw
-    ld bc,768
-    ldir
+    call FlipShadowSync          ; wipe old screen -> copy bitmap invisibly -> reveal attrs, synced
     ld hl,WinTune
     call PlayJingle              ; victory fanfare
     ret
 ShowWinOpp:
+    call WipeBlackSync           ; wipe the previous screen to black (synced)
+    ld a,0x20
+    ld (AttrOfs),a               ; build the colours in the 0x7800 buffer (text draws invisibly)
     call ClsBlack
     xor a
     out (254),a                  ; black border for the loss screen
@@ -6049,6 +6130,9 @@ ShowWinOpp:
     ld e,8
     call PrintStr
     call ShowScoreAndPrompt
+    xor a
+    ld (AttrOfs),a
+    call RevealAttrsSync         ; reveal the whole loss screen vblank-synced (no paint-in)
     ld hl,LoseTune
     call PlayJingle
     ret
@@ -6648,7 +6732,8 @@ DealCascade:                     ; round start: empty board (scene cut), then de
     ld hl,Table
     ld b,4
     call BlankFF                 ; TableN unchanged -> fixed 4-card layout; render skips 0xFF
-    call PaintAll                ; the empty table (cards cascade onto it next)
+    call RenderShadow            ; build the empty felt in the shadow...
+    call FlipShadowSync          ; ...then wipe the old screen + reveal it vblank-synced (no blinds)
     call RevealHands
     jp RevealTable
 
@@ -7760,6 +7845,44 @@ BannerAttrDst:
     ld h,a
     ret
 
+; BlitBannerBitmap: A = top char-row, HL = banner src (1024 bitmap + 128 attr) -> draw the 1024
+; bitmap onto the LIVE screen rows A..A+3 (invisible while those rows' attrs are black); HL advances
+; to the 128 attr bytes. Shared by BlitBanner and the scores-header buffered build.
+BlitBannerBitmap:
+    ld e,a                       ; screen bitmap addr (col 0, char-row A) -> DE
+    and 0x18
+    or 0x40
+    ld d,a
+    ld a,e
+    and 7
+    rrca
+    rrca
+    rrca
+    ld e,a
+    ld c,32                      ; 32 pixel rows
+.brow:
+    push bc
+    push de
+    ld bc,32
+    ldir                         ; copy one 32-byte pixel row
+    pop de
+    inc d                        ; next pixel row down (ZX interleave)
+    ld a,d
+    and 7
+    jr nz,.nx
+    ld a,e
+    add a,0x20
+    ld e,a
+    jr c,.nx
+    ld a,d
+    sub 8
+    ld d,a
+.nx:
+    pop bc
+    dec c
+    jr nz,.brow
+    ret
+
 ; BlitBanner: HL = banner source (256x32 linear bitmap + 128 attr), A = top char-row.
 ; VBLANK-SYNCED reveal (no horizontal-blinds draw): black out the 4 banner rows' attributes
 ; (HALT-synced), paint the bitmap under them INVISIBLY (ink=paper=black), then flip the real
@@ -7781,39 +7904,8 @@ BlitBanner:
     pop hl                       ; source
     pop af                       ; row
     push af
-    ld e,a                       ; screen bitmap addr (col 0, char-row A) -> DE
-    and 0x18
-    or 0x40
-    ld d,a
-    ld a,e
-    and 7
-    rrca
-    rrca
-    rrca
-    ld e,a
-    ld c,32                      ; 32 pixel rows
-.brow:
-    push bc
-    push de
-    ld bc,32
-    ldir                         ; copy one 32-byte pixel row (invisible: attrs are black)
-    pop de
-    inc d                        ; next pixel row down (ZX interleave)
-    ld a,d
-    and 7
-    jr nz,.nx
-    ld a,e
-    add a,0x20
-    ld e,a
-    jr c,.nx
-    ld a,d
-    sub 8
-    ld d,a
-.nx:
-    pop bc
-    dec c
-    jr nz,.brow
-    pop af                       ; A = top char-row; HL now -> the 128 source attr bytes
+    call BlitBannerBitmap        ; draw the 1024 bitmap (invisible); HL -> the 128 attr bytes
+    pop af                       ; A = top char-row
     push hl                      ; source attr ptr
     call BannerAttrDst           ; HL = attr dest
     ex de,hl                     ; DE = attr dest
