@@ -14,17 +14,22 @@ memory map, build process, key decisions and gotchas. For the chronological stor
 ## 1. What it is / current feature set
 
 - Title + loading screens (vibrant colour close-ups of Napoletane card-tops, tricolore "SCOPA").
-- Skill select: EASY / MEDIUM / HARD, plus an optional "Asso piglia tutto" rule toggle (key 4,
-  default OFF) — when on, an ace takes the whole table (Scopa d'Assi: that sweep scores no scopa).
+- Skill select: EASY / MEDIUM / HARD / **ESPERTO** (card-counting + exact deck-empty endgame
+  minimax), plus an "Asso piglia tutto" rule toggle (key 5, default OFF) — when on, an ace takes the
+  whole table (Scopa d'Assi: that sweep scores no scopa) — and a sound on/off toggle (key 6).
 - Full 40-card Napoletane deck in **defined-monochrome** 48×64 art + a card back. The three
   **coppe figure cards** (Fante/Cavallo/Re) carry a small traced goblet pip top-left for suit
   clarity; denari/spade/bastoni unbadged (denari is then clear by elimination — Tony's call).
 - Complete rules: single-card-capture priority, mandatory capture, subset-sum captures,
   scopa (sweep) with the last-play exception, last-capturer takes the table at round end.
 - Scoring: carte, denari, settebello, primiera (needs all 4 suits), scope, **napola
-  (Neapolitan)**. Match to 11; dealer/leader alternates each round.
-- Feedback: shadow-buffered flicker-free render; captured cards flash; live pile counts;
-  SCOPA! banner; big NEAPOLITAN screen + rising-scale jingle; beeper SFX; win/lose tunes.
+  (Neapolitan)**, **le palle del cane** (all four 7s). Match to 11; dealer/leader alternates each round.
+- Feedback: shadow-buffered flicker-free render; captured cards flash; live pile counts; ZX0-stored,
+  vblank-synced golden light-sweep banners — SCOPA!, NEAPOLITAN, **PALLE DEL CANE** (each fires the
+  instant it's achieved) — + rising-scale jingle, beeper SFX; a **VINCITORE** win screen with an
+  attribute shimmer (player win); win/lose tunes.
+- ~25s-idle attract DEMO (CPU-vs-CPU self-play, Esperto). A static front end with a working
+  **in-browser emulator** (Qaop/JS at /qaop/) + .tap/.tzx/.sna downloads (deploy: wrangler pages).
 
 ---
 
@@ -41,7 +46,9 @@ scopa/                 (the CANONICAL decode-on-draw game; original resident-dec
   title.zx0 / title2.zx0     ZX0-compressed title screens (INCBIN @0x6000; decoded to 0x4000 at boot).
   loading.zx0 / win.zx0      ZX0 loading screen (pop-in at load) and the VINCITORE win image.
   dzx0_standard.asm    the 68 B ZX0 decoder (INCLUDE'd; used for deck/titles/loading/win).
-  *_banner.bin         SCOPA!/NEAPOLITAN/tricolore banners (INCBIN).
+  *_banner.zx0         SCOPA!/NEAPOLITAN/PALLE DEL CANE/SCOPA-header banners, ZX0-compressed
+                       (INCBIN; DecodeBanner expands on show, vblank-synced). tools/emit_banners.py
+                       renders them (Rockwell) + zx0-packs them.
   scopa.tap/.tzx/.sna  real-hardware tape (silent multi-part loader) / TZX (turbo blocks) / snapshot.
   build_tap.py         builds scopa.tap (decoder block first → loading.zx0 pop-in → code → titles →
                        deck.zx0 → win). build_tzx.py wraps it as turbo blocks + archive metadata.
@@ -55,7 +62,9 @@ scopa/                 (the CANONICAL decode-on-draw game; original resident-dec
   zxtest.py            ZEsarUX harness: load .sna/.tap/.tzx/.z80, screenshot, read memory.
   legacy-v1/           the original resident-deck game (source, build, harnesses, prototypes), archived.
   research/            the decode-on-draw sandbox proofs (M0-M5, RESULTS/DESIGN/AUDIT, win-art generators).
-  site/                play-in-browser site (JSSpeccy embed + downloads); deploy: npx wrangler pages deploy site.
+  site/                front-end: landing page + gameplay/shimmer GIFs + .tap/.tzx/.sna downloads, and
+                       site/qaop/ = a self-hosted Qaop/JS in-browser emulator (auto-loads bin/scopa.sna
+                       via window.play). Deploy: npx wrangler pages deploy site --project-name=scopa-spectrum.
   DEVLOG.md            chronological build log.   DEVELOPMENT.md  this file.   RULES.md  rules & scoring.
 ```
 
@@ -330,6 +339,12 @@ polled then) — can't auto-drive a full round. CRT is ground truth.
 
 ## 13. Open / next
 
+- **CURRENT (2026-06-24, all LIVE both domains):** feature-complete + heavily CRT-polished. This
+  session: in-browser **Qaop/JS emulator** live (keyboard verified); far-left demo card-flash bug
+  fixed (stale Removed in MakeRoom); win screen + all banners now **vblank-synced** attribute reveals;
+  banners ZX0-compressed (decode-on-show); new **PALLE DEL CANE** banner. Code ends ~0xB22F, state
+  @0xBA00 (~2 KB free). **DEVLOG.md is the authoritative chronology** — the historical "DONE
+  this/since" notes below are from the original build's earlier sessions and may name old addresses.
 - CRT play-test (Tony) = ground truth for: slide feel/smoothness, tear-free-ness, the new
   match-end screen, the compressed title, napola / palle del cane.
 - DONE this session: "le palle del cane"; SCOMPACT title compression (~7 KB headroom);
