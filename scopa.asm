@@ -79,6 +79,7 @@ Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
 NapShown:  defs 1                  ; 1 once the napola (ace+2+3 of coins) celebration fired this round
+PalleShown: defs 1                 ; 1 once the palle del cane (all four 7s) celebration fired this round
 BnBase:    defs 2                  ; SweepBanner: attr base addr of the banner
 BnCol:     defs 1                  ; SweepBanner: current light-sweep column
 BnPass:    defs 1                  ; SweepBanner: remaining passes
@@ -602,7 +603,8 @@ Start:
     ; banner-sweep preview: show SCOPA! (or set TM58 for NEAPOLITAN) and LOOP the light-sweep so
     ; a screenshot reliably catches a glint frame. Confirms the Rockwell art + the sweep.
     call ClsBlack
-    ld hl,ScopaBanner
+    ld hl,ScopaBannerZX0
+    call DecodeBanner
     ld a,9
     call BlitBanner
     ei
@@ -614,7 +616,8 @@ Start:
     ENDIF
     IF TESTMODE == 58
     call ClsBlack
-    ld hl,NeapolitanBanner
+    ld hl,NeapolitanBannerZX0
+    call DecodeBanner
     ld a,9
     call BlitBanner
     ei
@@ -623,6 +626,20 @@ Start:
     ld e,1
     call SweepBanner
     jr .s58
+    ENDIF
+    IF TESTMODE == 59
+    ; banner-sweep preview: PALLE DEL CANE (all four 7s) with the 2-pass golden sweep
+    call ClsBlack
+    ld hl,PalleBannerZX0
+    call DecodeBanner
+    ld a,9
+    call BlitBanner
+    ei
+.s59:
+    ld d,9
+    ld e,2
+    call SweepBanner
+    jr .s59
     ENDIF
     IF TESTMODE == 60
     ; VINCITORE attribute-shimmer in the DEMO victory path (DemoMode=1) -- the case Tony hit.
@@ -1945,6 +1962,7 @@ NewRound:
     ld (Cursor),a
     ld (LastCap),a
     ld (NapShown),a              ; re-arm the napola celebration for the new round
+    ld (PalleShown),a            ; re-arm the palle del cane celebration for the new round
     call InitDeck
     call Shuffle
     call DealRound
@@ -3696,6 +3714,8 @@ ResolvePlay:
                                  ; (no crowded-table flash: the slide already shows where the
                                  ;  card lands; the hardware-FLASH blink read as a glitch)
 .done:
+    call ShowPalleIfDone         ; PALLE DEL CANE banner if a side just completed all four 7s (le
+                                 ; palle del cane) -- mirrors the napola check below; fires once/round
     ; --- napola achieved? celebrate the INSTANT the capturing side completes the ace+2+3 of coins
     ; (ids 0,1,2), rather than at round end. Fires once per round (NapShown). Captured cards are
     ; never lost, so this is monotonic; a drop can't complete it, so reaching here on a drop is a
@@ -4427,6 +4447,12 @@ MakeRoom:
     ld hl,ZipCur
     call addHLA
     ld (hl),c                    ; ZipCur[oldN] = gap col == target -> ZipMoveSpan ignores it
+    xor a
+    ld (Removed),a               ; a make-room is a DROP -> nothing removed. Without this, a stale
+                                 ; Removed>=3 left by the PREVIOUS capture makes ZipCompact run the
+                                 ; RemoveCascade removal-beat over the previous capture's RmTab[]
+                                 ; positions -> cards blink at stale slots (incl. far-left) for a
+                                 ; frame before the re-pack corrects them (the rare demo glitch).
     jp ZipCompact                ; animate the existing cards into the new spacing (gap stays empty)
 
 ; findAllCaptures: A=value -> Options[] (table-index masks), OptionN.
@@ -5177,7 +5203,8 @@ ScaleTbl: defb 250,222,198,187,167,148,132,125,118
 ; ShowNeapolitan: brief celebratory screen with NEAPOLITAN in big letters + the scale
 ShowNeapolitan:
     call PaintAll                ; OVERLAY on the board (was ClsBlack -> a full-black interstitial);
-    ld hl,NeapolitanBanner       ; now fired the instant the ace+2+3-of-coins is completed mid-game
+    ld hl,NeapolitanBannerZX0    ; now fired the instant the ace+2+3-of-coins is completed mid-game
+    call DecodeBanner
     ld a,9
     call BlitBanner
     call NeapolitanSound
@@ -5188,6 +5215,39 @@ ShowNeapolitan:
     ld b,1
     call Delay
     ret
+
+; ShowPalle: celebrate "le palle del cane" -- a side has captured all four 7s. Same overlay +
+; 2-pass golden sweep flourish as the napola banner.
+ShowPalle:
+    call PaintAll
+    ld hl,PalleBannerZX0
+    call DecodeBanner
+    ld a,9
+    call BlitBanner
+    ld hl,ScopaJingle
+    call PlayJingle
+    ei                           ; SweepBanner is HALT-paced
+    ld d,9
+    ld e,2                       ; two passes -- a big flourish for the all-four-7s bonus
+    call SweepBanner
+    ld b,1
+    call Delay
+    ret
+
+; ShowPalleIfDone: fire the PALLE DEL CANE banner the INSTANT the side that just captured completes
+; all four 7s. Once per round (PalleShown). Captured cards are never lost so this is monotonic; a
+; drop can't complete it -> a harmless re-check on a drop. Called from ResolvePlay's .done.
+ShowPalleIfDone:
+    ld a,(PalleShown)
+    or a
+    ret nz                       ; already celebrated this round
+    ld a,(Who)
+    call PalleDelCane            ; A=1 if Who's pile now holds all four 7s
+    or a
+    ret z
+    ld a,1
+    ld (PalleShown),a
+    jp ShowPalle                 ; tail-call: banner, then ret to .done
 
 ; ---- 2x-size text ----
 DoubleNib: defb 0x00,0x03,0x0C,0x0F,0x30,0x33,0x3C,0x3F,0xC0,0xC3,0xCC,0xCF,0xF0,0xF3,0xFC,0xFF
@@ -5720,7 +5780,8 @@ FillAttrRow:
 
 ShowResults:
     call ClsBlack
-    ld hl,ScopaFlag              ; SCOPA on the Italian tricolore (flag header)
+    ld hl,ScopaFlagZX0           ; SCOPA scores-screen header
+    call DecodeBanner
     ld a,0
     call BlitBanner
     ld hl,StrHdr
@@ -5941,12 +6002,30 @@ SetCellAttr:
     ret
 
 ShowWinYou:                      ; player won the match -> the VINCITORE image (decode-on-show)
+    ; Reveal via ATTRIBUTES, not via a visible bitmap draw: decode the screen OFF-screen, blank the
+    ; live attrs to black (bitmap copy is then invisible), copy the bitmap in, then flip the real
+    ; attributes on in ONE vblank-synced sweep -> a clean pop-in instead of the horizontal-blinds
+    ; raster draw. 0x6000 is the free shadow region (6912 B: bitmap 0x6000-0x77FF, attrs 0x7800-0x7AFF).
     ld hl,WinZX0
-    ld de,0x4000
-    call dzx0_standard           ; decompress the winner screen straight onto the display
+    ld de,0x6000
+    call dzx0_standard           ; decode the winner screen off-screen
     xor a
-    out (254),a                  ; black border to frame the image
+    out (254),a                  ; black border first -> the whole frame blacks out, then the image pops
     ld (BorderC),a
+    ld hl,0x5800                 ; blank the live attributes (ink=paper=black) -> bitmap copy invisible
+    ld de,0x5801
+    ld bc,0x02FF
+    ld (hl),a
+    ldir
+    ld hl,0x6000                 ; copy the bitmap onto the display (invisible: every cell is black)
+    ld de,0x4000
+    ld bc,6144
+    ldir
+    halt                         ; reveal: one HALT-synced attribute LDIR (same tear-free path as the
+    ld hl,0x7800                 ; shimmer's BlitAttrs) -> the image appears cleanly, top-to-bottom,
+    ld de,0x5800                 ; ahead of the beam, with no horizontal-blinds draw
+    ld bc,768
+    ldir
     ld hl,WinTune
     call PlayJingle              ; victory fanfare
     ret
@@ -7573,7 +7652,8 @@ ShowCapture:
 ; ShowScopa: flash a SCOPA! banner across the middle.
 ShowScopa:
     call PaintAll
-    ld hl,ScopaBanner            ; big Rockwell "SCOPA!" banner across the middle
+    ld hl,ScopaBannerZX0         ; big Rockwell "SCOPA!" banner across the middle
+    call DecodeBanner
     ld a,9
     call BlitBanner
     ld hl,ScopaJingle
@@ -7657,9 +7737,50 @@ SweepBanner:
     jr nz,.bcol
     ret
 
+; DecodeBanner: HL = ZX0-packed banner -> decode the 1152 B banner (1024 bitmap + 128 attr) into
+; the free shadow region at 0x6000; returns HL = 0x6000 for BlitBanner to draw from. (The banners
+; are stored ZX0-compressed -- 4608 B raw -> ~1.3 KB -- to free code space for the extra banner.)
+DecodeBanner:
+    ld de,0x6000
+    call dzx0_standard
+    ld hl,0x6000
+    ret
+
+; BannerAttrDst: A = top char-row -> HL = 0x5800 + row*32 (the banner's 128-cell attr block)
+BannerAttrDst:
+    ld h,0
+    ld l,a
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld a,h
+    add a,0x58
+    ld h,a
+    ret
+
 ; BlitBanner: HL = banner source (256x32 linear bitmap + 128 attr), A = top char-row.
+; VBLANK-SYNCED reveal (no horizontal-blinds draw): black out the 4 banner rows' attributes
+; (HALT-synced), paint the bitmap under them INVISIBLY (ink=paper=black), then flip the real
+; gold attributes on in one HALT-synced 128-byte write -> the banner pops in cleanly. The two
+; synced writes are only 128 B each, so they finish ahead of the beam for ANY row (incl. row 0,
+; the scores header). Needs interrupts on for the HALTs (ei on entry).
 BlitBanner:
-    push af                      ; keep the row for the attr pass
+    ei
+    push af                      ; keep the row
+    push hl                      ; keep the source
+    call BannerAttrDst           ; HL = attr dest (0x5800 + row*32)
+    halt                         ; synced: black out the 4 banner rows before any draw
+    ld b,128
+    xor a
+.blk:
+    ld (hl),a
+    inc hl
+    djnz .blk
+    pop hl                       ; source
+    pop af                       ; row
+    push af
     ld e,a                       ; screen bitmap addr (col 0, char-row A) -> DE
     and 0x18
     or 0x40
@@ -7675,7 +7796,7 @@ BlitBanner:
     push bc
     push de
     ld bc,32
-    ldir                         ; copy one 32-byte pixel row (HL advances linearly)
+    ldir                         ; copy one 32-byte pixel row (invisible: attrs are black)
     pop de
     inc d                        ; next pixel row down (ZX interleave)
     ld a,d
@@ -7692,20 +7813,13 @@ BlitBanner:
     pop bc
     dec c
     jr nz,.brow
-    pop af                       ; A = top char-row
-    push hl                      ; HL = source attr data (after the 1024 bitmap bytes)
-    ld h,0
-    ld l,a
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl                    ; HL = row*32
-    ld de,0x5800
-    add hl,de                    ; HL = attr dest = 0x5800 + row*32
-    ex de,hl
+    pop af                       ; A = top char-row; HL now -> the 128 source attr bytes
+    push hl                      ; source attr ptr
+    call BannerAttrDst           ; HL = attr dest
+    ex de,hl                     ; DE = attr dest
     pop hl                       ; HL = source attr ptr
-    ld bc,128                    ; 4 rows x 32, contiguous
+    halt                         ; synced REVEAL: flip the real attributes on in one sweep
+    ld bc,128
     ldir
     ret
 
@@ -8016,12 +8130,16 @@ LoseTune:                        ; deflated chromatic sag
     defb 20,8,2, 19,8,2, 18,6,2, 17,5,4
     defb 0xFF
 
-ScopaBanner:
-    INCBIN "scopa_banner.bin"    ; 1024 bitmap + 128 attr = the big "SCOPA!" wordmark
-NeapolitanBanner:
-    INCBIN "neapolitan_banner.bin"
-ScopaFlag:
-    INCBIN "scopa_flag.bin"      ; SCOPA over the Italian tricolore (scores-screen header)
+; ZX0-compressed banners (decoded on show by DecodeBanner -> 0x6000): 4608 B raw -> ~1.3 KB,
+; freeing code space for the PALLE DEL CANE banner. Each is 1024 bitmap + 128 attr when decoded.
+ScopaBannerZX0:
+    INCBIN "scopa_banner.zx0"    ; the big "SCOPA!" wordmark
+NeapolitanBannerZX0:
+    INCBIN "neapolitan_banner.zx0"
+PalleBannerZX0:
+    INCBIN "palle_banner.zx0"    ; "PALLE DEL CANE" -- all four 7s captured (le palle del cane)
+ScopaFlagZX0:
+    INCBIN "scopa_flag.zx0"      ; SCOPA scores-screen header
 
 CodeEnd:
     ; Compressed title parked in the shadow-buffer region: ShowTitle expands it to the

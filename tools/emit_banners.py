@@ -4,8 +4,10 @@ Format (matches BlitBanner): 1024 bitmap bytes (256x32, 32 rows x 32 bytes, MSB=
 128 attr bytes (4 char-rows x 32 cols). The base attr is bright-gold (0x46); the runtime
 SweepBanner routine overrides the attrs to animate the light-sweep, so the stored colour is
 just the resting gold. RUN FROM scopa/."""
-import os
+import os, subprocess
 from PIL import Image, ImageDraw, ImageFont
+
+ZX0 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zx0")
 
 ROCK = "/System/Library/Fonts/Supplemental/Rockwell.ttc"
 W, H = 256, 32
@@ -38,9 +40,12 @@ def emit(word, path):
             out.append(byte)
     out += bytes([GOLD]) * 128
     open(path, "wb").write(out)
-    print(f"  {path}: {len(out)} B  ('{word}', Rockwell, gold)")
+    zpath = path.rsplit(".", 1)[0] + ".zx0"      # ZX0-compress for decode-on-show (saves code space)
+    subprocess.run([ZX0, "-f", path, zpath], check=True, capture_output=True)
+    print(f"  {path}: {len(out)} B  -> {zpath}: {os.path.getsize(zpath)} B  ('{word}', Rockwell, gold)")
 
 emit("SCOPA!",     "scopa_banner.bin")
 emit("NEAPOLITAN", "neapolitan_banner.bin")
+emit("PALLE DEL CANE", "palle_banner.bin")
 emit("SCOPA",      "scopa_flag.bin")           # scores header, now gold Rockwell (was tricolore)
 print("done -- INCBIN'd by scopa.asm; rebuild the tape after.")

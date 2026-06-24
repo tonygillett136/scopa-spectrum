@@ -1092,3 +1092,51 @@ N ZEsarUX frames into a GIF; TM60 shimmer, new TM61 = jp EnterDemo) shown crisp 
 image-rendering:pixelated, plus a 'Download the tape' CTA; kept the controls card. Removed JSSpeccy
 (script, emu/ core, all play-*.z80/scopa*.z80). Live + verified (both GIFs load, 0 jsspeccy refs).
 The tape downloads are unchanged and flawless on real hardware -- the actual deliverable.
+
+## In-browser emulator on Qaop/JS + bug fix + win reveal + ZX0/synced banners + PALLE (2026-06-24)
+A big session. Six things:
+
+1. **In-browser emulator -> Qaop/JS (the keyboard finally works).** JSSpeccy's keyboard could never
+   be made to work reliably (Web-Worker CPU, key-root focus, unverifiable headless). Switched to
+   **Qaop/JS** (Jan Bobrowski), which binds keys to `window` and runs the CPU on the MAIN THREAD ->
+   no COOP/COEP, and **verifiable in Playwright**. Mirrored Qaop's full app under `site/qaop/` (it
+   hardcodes base `/qaop/`): index.html (canonical skeleton + `window.play={slug:"scopa.sna",...}`
+   so it auto-loads our snapshot from `/qaop/bin/`), qaop.js, the 114716 B ROM blob at `/qaop/roms`,
+   a no-op `sw.js` (avoid stale caching), trimmed manifest, icon/icon-mono/keyboard, and a `scr/scopa`
+   thumbnail (kills the only console 404). Kept the `<a rel=author>`/torinak attribution (Qaop's soft
+   licence check reads it). Added a "<- SCOPA" back-link. Linked from the main page (hero + play
+   section: "Play in your browser" -> `qaop/`). **Verified in a real browser via Playwright**: boots
+   our snapshot to the title, SPACE -> SELECT SKILL menu, 1 -> a live game with the cursor. (The
+   earlier "dead keyboard" in tests was Playwright's *sub-frame* synthetic press being missed by the
+   once-per-frame poll; a held key works -- a real human is fine.) Full notes in the memory note.
+
+2. **Longer gameplay GIF.** site/img/gameplay.gif: 8 frames/2.9s -> 56 frames/~17s (tools capture).
+
+3. **BUG FIX: rare far-left card flash in demo.** `MakeRoom` (pack-shift for a drop) tail-called
+   `ZipCompact` without resetting `Removed`; a stale `Removed>=3` from the PREVIOUS capture made
+   ZipCompact run `RemoveCascade` over the previous capture's `RmTab[]` positions -> cards blinked at
+   stale slots (incl. slot 0, far left) for a frame before the re-pack corrected them. Trigger = a
+   >=3-card capture immediately followed by a drop onto a non-empty table (rare). Fix: `Removed=0` in
+   MakeRoom (a make-room is a drop -> nothing removed), matching what ResolvePlay's drop path already
+   does before its own re-pack. Deterministic; TM-verified clean boot.
+
+4. **Win screen: attribute reveal (no horizontal-blinds draw).** `ShowWinYou` used to dzx0 straight
+   to the screen -> you watched the VINCITORE bitmap paint in. Now it decodes OFF-screen (0x6000),
+   blanks the live attrs to black (bitmap copy is then invisible), copies the bitmap, then flips the
+   real attributes on in ONE HALT-synced 768 B LDIR -> a clean pop-in (same tear-free path as the
+   shimmer's BlitAttrs). TM10 verified the image renders correctly.
+
+5. **ZX0-compressed banners + vblank-synced BlitBanner.** All four banners (SCOPA!, NEAPOLITAN,
+   PALLE, the SCOPA scores header) are now stored ZX0 (4608 B raw -> ~1.3 KB) and decoded on show by
+   `DecodeBanner` -> 0x6000; freed ~2 KB of the near-full 0x8000 code region (headroom 33 B -> ~2 KB).
+   `BlitBanner` is now **vblank-synced**: black out the 4 banner rows' attrs (HALT), paint the bitmap
+   under them invisibly, then reveal the gold attrs in one HALT-synced 128 B write -> no blinds, for
+   ANY row (incl. row 0, the scores header). TM57/58/59 verified all three celebration banners.
+
+6. **PALLE DEL CANE banner.** New celebration, parallel to napola: fires the instant a side completes
+   all four 7s (`PalleDelCane`). `ShowPalleIfDone` in ResolvePlay's `.done` + `ShowPalle` (overlay +
+   2-pass golden sweep) + `PalleShown` per-round flag (reset in NewRound). TM59 verified the banner.
+
+tap 34.8 KB (smaller -- the ZX0 banners more than paid for the new code), tzx 35.2 KB. All TM-verified
+in ZEsarUX (boot, tape load, win, 3 banners) + Qaop browser keyboard. CRT-pending: the synced reveals
+(blinds-free) on real hardware, and PALLE firing in a live game.

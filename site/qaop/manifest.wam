@@ -1,0 +1,1 @@
+{"name":"SCOPA","short_name":"SCOPA","description":"Scopa for the ZX Spectrum","start_url":".","display":"standalone","theme_color":"#000","background_color":"#111","icons":[{"src":"icon","sizes":"256x256","type":"image/png"},{"src":"icon-mono","purpose":"monochrome","sizes":"any","type":"image/svg+xml"}]}
