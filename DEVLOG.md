@@ -1140,3 +1140,24 @@ A big session. Six things:
 tap 34.8 KB (smaller -- the ZX0 banners more than paid for the new code), tzx 35.2 KB. All TM-verified
 in ZEsarUX (boot, tape load, win, 3 banners) + Qaop browser keyboard. CRT-pending: the synced reveals
 (blinds-free) on real hardware, and PALLE firing in a live game.
+
+## All screen transitions vblank-synced (2026-06-24)
+Generalized the win/banner reveal to EVERY screen so nothing paints in as horizontal-blinds. Tony's
+model: wipe the OLD screen to black (vblank-synced), draw the new screen INVISIBLY (black attrs), then
+reveal the attributes vblank-synced. Helpers: `WipeBlackSync` (HALT + 768 B black-attr LDIR),
+`RevealAttrsSync` (HALT + 0x7800->0x5800 LDIR), `FlipShadowSync` (shadow bitmap 0x6000->screen +
+RevealAttrsSync; for the board scene-cut + win image). New **AttrOfs** var (like ScrOfs but attrs
+only): text screens set AttrOfs=0x20 so FillAttrRow/ClsBlack/SetCellAttr build their colours in the
+0x7800 buffer while PrintStr draws the bitmap live (invisible under the black-wiped attrs); one
+RevealAttrsSync pops the whole screen in. The 0x7800 buffer is free even at title-time (beyond the
+title ZX0 sources at 0x6000-0x75EE), so how-to never clobbers the title source. BlitBannerBitmap
+factored out so the scores header joins the buffered reveal (bitmap live + gold rows in the buffer).
+Converted: title (WipeBlackSync + invisible decode -- its source lives in 0x6000 so it can't use the
+shadow; only the compact attr tail of the ZX0 stream is un-synced), skill menu, felt scene-cut
+(RenderShadow + FlipShadowSync), scores (+ SetCellAttr/HighlightWinners buffer-aware), lose, how-to,
+win (refactored to FlipShadowSync). GOTCHA: `DecompressScr` had to push/pop HL across WipeBlackSync
+(the wipe clobbers HL = the decoder source) -- else the title decoded garbage (showed the ROM screen).
+Interrupts are on by ShowTitle (Start does im1+ei), so the HALTs are safe. Verified every screen
+renders (TM1 scores / TM10 win / TM57-59 banners / new TM62 lose / driven menu+how-to+real-game) + a
+70s demo with no transition hang; return-from-how-to re-decodes the title cleanly. tap 35.0KB.
+CRT-pending: blinds-free on real hardware. Technique -> animation note section 11.
