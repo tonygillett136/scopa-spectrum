@@ -339,6 +339,21 @@ polled then) — can't auto-drive a full round. CRT is ground truth.
 
 ## 13. Open / next
 
+- **PENDING IDEAS (discussed, prototyped, not yet built):**
+  - **Software card-flash** (replace the hardware FLASH bit 0xF8 used by HighlightCursor /
+    FlashCaptured / FlashTableCard / FlashCardRegion). Hardware FLASH is fine for the SUSTAINED
+    cursor highlight but weak for the one-shot capture flash (global 320ms phase, short hold ->
+    unpredictable, the R43 class). Software gives controlled phase/rate/colour + jingle-sync.
+    Prototyped styles in tools/flash_proto.py -> flash_proto/*.gif (gold_glow / gold_frame /
+    sweep / regal / invert_blink / white_frame / cyan_glow / bright_pulse). Leaning gold theme:
+    gold_frame (halo) for selection, gold_glow or a single gold sweep for capture. CHOOSE A STYLE
+    then implement (drive a PulseAttr from the existing HALT-synced wait/animation loops).
+  - **Table->scores transition: wipe to CYAN, not black** (Tony's idea, "more natural"). For that
+    one transition, instead of WipeBlackSync, set every cell to solid felt cyan (ink==paper==cyan
+    = attr 0x2D) so the table "empties" to the bare felt, draw the scores invisibly under it, then
+    RevealAttrsSync. A WipeFeltSync variant (0x2D) used only in ShowResults' entry. Implement after
+    the flash style is agreed.
+
 - **CURRENT (2026-06-24, all LIVE both domains):** feature-complete + heavily CRT-polished. This
   session: in-browser **Qaop/JS emulator** live (keyboard verified); far-left demo card-flash bug
   fixed (stale Removed in MakeRoom); win screen + all banners now **vblank-synced** attribute reveals;
