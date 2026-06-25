@@ -81,6 +81,7 @@ CursorPhase: defs 1               ; software cursor glow: frame counter (bit 3 -
 WaveF:     defs 1                  ; capture gold-wave: current frame of the staggered sweep
 WaveTotal: defs 1                  ; capture gold-wave: total frames = (K-1)*STAG + SWEEP + PAUSE
 WaveBand:  defs 1                  ; capture gold-wave: the gold band row (0..7) of the card being drawn
+WavePlayed: defs 1                ; 1 = also sweep the played card (on the table at slot TableN) as the last
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -7441,10 +7442,10 @@ PulseCursor:
     ld hl,CursorPhase
     inc (hl)
     ld a,(hl)
-    and 0x08
-    ld a,0x78                    ; off phase -> white
+    and 0x10                     ; bit 4 -> toggle every 16 frames (~320ms); 50% slower than bit 3
+    ld a,0x78                    ; off phase -> bright white
     jr z,.set
-    ld a,0x70                    ; on phase -> gold
+    ld a,0x70                    ; on phase -> yellow
 .set:
     push af
     ld a,(Cursor)
@@ -7756,9 +7757,10 @@ FlashCaptureWave:
     inc e
     jr .cwk
 .cwkd:
-    ld a,c
+    ld a,(WavePlayed)            ; the played card (on the table at slot TableN) joins as the last card
+    add a,c                      ; K = captured + WavePlayed
     or a
-    ret z                        ; nothing captured -> nothing to do
+    ret z                        ; nothing to do
     dec a                        ; K-1
     ld b,a
     ld a,WAVE_SWEEP+WAVE_PAUSE
@@ -7781,7 +7783,7 @@ FlashCaptureWave:
     ld a,e
     ld hl,TableN
     cp (hl)
-    jr nc,.cwd
+    jr nc,.cwplayed
     ld hl,CapSel
     ld a,e
     call addHLA
@@ -7813,6 +7815,27 @@ FlashCaptureWave:
 .cws:
     inc e
     jr .cwc
+.cwplayed:                       ; the played card at slot TableN sweeps last (order C = captured count)
+    ld a,(WavePlayed)
+    or a
+    jr z,.cwd
+    ld a,(TableN)
+    call TableSlotCol
+    ld d,a
+    ld a,c
+    ld b,a
+    xor a
+    inc b
+    dec b
+    jr z,.cwpl0
+.cwplk:
+    add a,WAVE_STAG
+    djnz .cwplk
+.cwpl0:
+    ld b,a
+    ld a,(WaveF)
+    sub b
+    call SweepCardCol
 .cwd:
     ld hl,WaveF
     inc (hl)
@@ -7820,6 +7843,8 @@ FlashCaptureWave:
     ld hl,WaveTotal
     cp (hl)
     jr c,.cwf
+    xor a
+    ld (WavePlayed),a            ; consume (defaults to 0 for the crowded-capture callers)
     ret
 
 ; SweepCardCol: D=col, A=local (signed frame offset) -> draw the 6-wide card at col D, rows 8-15 with
@@ -7915,35 +7940,11 @@ FlashCardRegion:
 ShowCapture:
     call PaintAll
     call DrawPlayedCard          ; played card sits just past the table cards
-    ld a,(TableN)
-    call FlashTableCard          ; flash the just-played card's slot
-    ld a,(TableN)
-    ld c,a
-    ld e,0
-.fl:
-    ld a,e
-    cp c
-    jr nc,.pause
-    ld hl,CapSel
-    ld a,e
-    call addHLA
-    ld a,(hl)
-    or a
-    jr z,.fln
-    ld a,e
-    push bc
-    push de
-    call FlashTableCard
-    pop de
-    pop bc
-.fln:
-    inc e
-    jr .fl
-.pause:
+    ld a,1
+    ld (WavePlayed),a            ; the played card is on the table -> sweep it as the last wave card
     ld hl,CaptureJingle
-    call PlayJingle
-    ld b,2
-    call Delay
+    call PlayJingle              ; the capture ding
+    call FlashCaptureWave        ; gold ripples left->right across the captured cards + the played card
     ret
 
 ; ShowScopa: flash a SCOPA! banner across the middle.
