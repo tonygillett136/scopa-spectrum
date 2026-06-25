@@ -79,9 +79,11 @@ AttrOfs:   defs 1                  ; attr high-byte add (0x00=live 0x5800, 0x20=
 HumanTurn: defs 1                  ; 1 only while the player is choosing -> cursor flashes
 CursorPhase: defs 1               ; software cursor glow: frame counter (bit 3 -> white/gold toggle)
 WaveF:     defs 1                  ; capture gold-wave: current frame of the staggered sweep
-WaveTotal: defs 1                  ; capture gold-wave: total frames = (K-1)*STAG + SWEEP + PAUSE
-WaveBand:  defs 1                  ; capture gold-wave: the gold band row (0..7) of the card being drawn
+WaveTotal: defs 1                  ; capture gold-wave: total frames
 WavePlayed: defs 1                ; 1 = also sweep the played card (on the table at slot TableN) as the last
+WaveWidth: defs 1                  ; capture gold-wave: current card's visible width (overlap-clamped)
+WaveMaxSlot: defs 1               ; capture gold-wave: rightmost swept card's slot (for the width clamp)
+WaveLoc:   defs 1                  ; capture gold-wave: local frame, stashed across the TableSlotCol calls
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -7734,9 +7736,10 @@ FlashCaptured:
 ; A gold band sweeps DOWN each captured table card (CapSel set); card k starts WAVE_STAG frames after
 ; card k-1, so the gold ripples left->right across the captured row. HALT-synced (tear-free); the card
 ; bitmaps are untouched -- only attributes change. Restored by the caller's next PaintAll.
-WAVE_SWEEP = 12                  ; frames for one card's glint to cross top->bottom
+WAVE_SWEEP = 8                   ; frames for one glint PASS top->bottom (was 12; 50% faster)
 WAVE_STAG  = 4                   ; per-card start delay (the "bit out of sync")
-WAVE_PAUSE = 8                   ; brief settle after the last card finishes
+WAVE_PAUSE = 4                   ; brief settle after the last card finishes
+WAVE_BAND  = 4                   ; band thickness in char-rows (fatter glint)
 FlashCaptureWave:
     ld a,(TableN)                ; K = number of captured cards
     ld b,a
@@ -7763,7 +7766,7 @@ FlashCaptureWave:
     ret z                        ; nothing to do
     dec a                        ; K-1
     ld b,a
-    ld a,WAVE_SWEEP+WAVE_PAUSE
+    ld a,2*WAVE_SWEEP+WAVE_PAUSE  ; two passes per card
     inc b
     dec b
     jr z,.cwt0                   ; K==1 -> no stagger term
@@ -7772,6 +7775,11 @@ FlashCaptureWave:
     djnz .cwtl
 .cwt0:
     ld (WaveTotal),a             ; total frames
+    ld a,(TableN)                ; WaveMaxSlot = the rightmost swept card's slot
+    ld hl,WavePlayed
+    add a,(hl)
+    dec a
+    ld (WaveMaxSlot),a
     xor a
     ld (WaveF),a
 .cwf:
@@ -7792,22 +7800,15 @@ FlashCaptureWave:
     jr z,.cws
     push bc
     push de
+    call WaveLocalC              ; A = local (uses C = order; before TableSlotCol clobbers C)
+    ld (WaveLoc),a
     ld a,e
-    call TableSlotCol            ; D = clamped col of this captured card
-    ld d,a
-    ld a,c                       ; B = k*WAVE_STAG (general, so WAVE_STAG stays tunable)
-    ld b,a
-    xor a
-    inc b
-    dec b
-    jr z,.cwl0
-.cwlk:
-    add a,WAVE_STAG
-    djnz .cwlk
-.cwl0:
-    ld b,a
-    ld a,(WaveF)
-    sub b                        ; A = local frame for this card (signed)
+    call CardVisWidth            ; overlap-clamped visible width -> WaveWidth (no bleed onto neighbours)
+    ld (WaveWidth),a
+    ld a,e
+    call TableSlotCol
+    ld d,a                       ; D = col
+    ld a,(WaveLoc)
     call SweepCardCol
     pop de
     pop bc
@@ -7819,22 +7820,15 @@ FlashCaptureWave:
     ld a,(WavePlayed)
     or a
     jr z,.cwd
+    call WaveLocalC
+    ld (WaveLoc),a
+    ld a,(TableN)
+    call CardVisWidth
+    ld (WaveWidth),a
     ld a,(TableN)
     call TableSlotCol
     ld d,a
-    ld a,c
-    ld b,a
-    xor a
-    inc b
-    dec b
-    jr z,.cwpl0
-.cwplk:
-    add a,WAVE_STAG
-    djnz .cwplk
-.cwpl0:
-    ld b,a
-    ld a,(WaveF)
-    sub b
+    ld a,(WaveLoc)
     call SweepCardCol
 .cwd:
     ld hl,WaveF
@@ -7847,59 +7841,89 @@ FlashCaptureWave:
     ld (WavePlayed),a            ; consume (defaults to 0 for the crowded-capture callers)
     ret
 
-; SweepCardCol: D=col, A=local (signed frame offset) -> draw the 6-wide card at col D, rows 8-15 with
-; a 2-row GOLD band at (local mapped 0..7), the rest WHITE. local<0 (>=0x80) or >=SWEEP -> all white.
-SweepCardCol:
-    ld c,0xFF                    ; band row = none
-    cp 0x80
-    jr nc,.scb                   ; local negative -> card hasn't started
-    cp WAVE_SWEEP
-    jr nc,.scb                   ; local past the sweep -> done
-    add a,a
-    add a,a
-    add a,a                      ; local*8
-    ld b,0
-.scdv:
-    sub WAVE_SWEEP
-    jr c,.scdd
-    inc b
-    jr .scdv
-.scdd:
-    ld c,b                       ; band row = local*8 / SWEEP  (0..7)
-.scb:
+; WaveLocalC: C = card order -> A = local frame (WaveF - C*WAVE_STAG), signed. No TableSlotCol calls.
+WaveLocalC:
     ld a,c
-    ld (WaveBand),a
-    ld a,d
-    ld l,a
-    ld h,0x59                    ; 0x5900 = attr row 8 (table top)
-    ld c,8                       ; 8 char-rows
-    ld e,0                       ; current row 0..7
-.scr:
-    ld a,(WaveBand)
-    cp e
-    jr z,.scgold
-    inc a                        ; +1 -> a 2-row band (fatter glint)
-    cp e
-    jr z,.scgold
+    ld b,a
+    xor a
+    inc b
+    dec b
+    jr z,.wl0
+.wlk:
+    add a,WAVE_STAG
+    djnz .wlk
+.wl0:
+    ld b,a
+    ld a,(WaveF)
+    sub b
+    ret
+
+; CardVisWidth: A = slot index -> A = visible width (gap to the next card's clamped col, clamped 1..6,
+; else full 6) so the gold band never bleeds onto an overlapping neighbour. Uses WaveMaxSlot.
+CardVisWidth:
+    ld c,a
+    ld a,(WaveMaxSlot)
+    cp c
+    jr z,.cvfull                 ; rightmost swept card -> full width (nothing overlaps it on the right)
+    ld a,c
+    call TableSlotCol
+    ld d,a
+    ld a,c
+    inc a
+    call TableSlotCol
+    sub d                        ; gap to the next card
+    jr z,.cvfull                 ; 0 (fully hidden, the right card overwrites it) -> full
+    cp 7
+    ret c                        ; gap 1..6 -> that's the visible width
+.cvfull:
+    ld a,6
+    ret
+
+; SweepCardCol: D=col, A=local (signed) -> draw the WaveWidth-wide card at col D, rows 8-15 with a
+; WAVE_BAND-row GOLD band sweeping top->bottom TWICE over local 0..2*SWEEP, the rest WHITE. band_start
+; = pos: the band starts full at the top and slides off the bottom each pass. local<0 or >=2*SWEEP ->
+; all white. SWEEP=8 (fast) means the band advances ~1 row/frame, so it never lingers at the top.
+SweepCardCol:
+    ld l,d                       ; L = col (before D is reused for band_start)
+    cp 0x80
+    jr nc,.white                 ; local negative -> not started
+    cp 2*WAVE_SWEEP
+    jr nc,.white                 ; past both passes
+    cp WAVE_SWEEP
+    jr c,.have                   ; 1st pass: band_start = pos = local
+    sub WAVE_SWEEP               ; 2nd pass: band_start = pos = local - SWEEP
+    jr .have
+.white:
+    ld a,0x7F                    ; band off-screen -> every row white
+.have:
+    ld d,a                       ; D = band_start
+    ld h,0x59                    ; HL = 0x5900 + col
+    ld e,0                       ; row r
+.row:
+    ld a,e
+    sub d                        ; delta = r - band_start
+    cp WAVE_BAND
     ld a,0x78                    ; white
-    jr .scf
-.scgold:
-    ld a,0x70                    ; gold
-.scf:
-    ld b,6
+    jr nc,.fill
+    ld a,0x70                    ; gold (0 <= delta < BAND)
+.fill:
+    ld c,a                       ; colour
+    ld a,(WaveWidth)
+    ld b,a                       ; width
     push hl
-.scfc:
-    ld (hl),a
+.fc:
+    ld (hl),c
     inc hl
-    djnz .scfc
+    djnz .fc
     pop hl
     push de
     ld de,32
     add hl,de
     pop de
     inc e
-    dec c
-    jr nz,.scr
+    ld a,e
+    cp 8
+    jr nz,.row
     ret
 
 ; FlashCardRegion: D=col, E=char-row -> OR the FLASH bit into a 6x8 card's attribute cells
