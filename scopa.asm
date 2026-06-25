@@ -85,6 +85,9 @@ WaveMaxSlot: defs 1               ; capture flash: rightmost flashed card's slot
 WaveIdx:   defs 1                  ; capture flash: table index, stashed (TableSlotCol clobbers E)
 FlashCol:  defs 1                  ; fill colour for FlashTableCard (gold preview / pulsing choose flash)
 WaveFlashCol: defs 1               ; capture flash: current cell colour (bright white 0x78 / dim white 0x38)
+WaveRowHi:  defs 1                  ; capture flash: attr-row high byte for SweepCardCol (0x59 table band)
+WaveTopCol: defs 1                  ; capture flash: col of the crowded played card (in hand/opp-top); 0xFF=none
+WaveTopHi:  defs 1                  ; capture flash: its attr-row high byte (0x58 opp-top / 0x5A player-hand)
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -2151,10 +2154,15 @@ PlayerTurn:
 .kihshow:
     call MaskToCapSel            ; CapSel = the captured set
     call PaintAll                ; card is still in your hand -> drawn there
-    call HighlightCursor         ; flash it in the hand
+    ld a,(Cursor)                ; flash the played card in your hand with the capture wave
+    call HandAttrHL
+    ld a,l
+    ld (WaveTopCol),a
+    ld a,h
+    ld (WaveTopHi),a
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
-    call FlashCaptureWave        ; gold ripples left->right across the captured cards
+    call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
     ld a,(Cursor)                ; now remove it and resolve (no slide, no on-table show)
     ld hl,Player
     call addHLA
@@ -2314,13 +2322,13 @@ OppTurn:
     ld e,0
     ld a,(Played)
     call BlitCard                 ; reveal the played card face-up at its slot (top row), tear-free
-    ld a,(SlHandCol)
-    ld d,a
-    ld e,0
-    call FlashCardRegion          ; flash it in place
+    ld a,(SlHandCol)              ; flash the revealed played card (top slot) with the capture wave
+    ld (WaveTopCol),a
+    ld a,0x58
+    ld (WaveTopHi),a
     ld hl,CaptureJingle
     call PlayJingle               ; the capture ding
-    call FlashCaptureWave         ; gold ripples left->right across the captured cards
+    call FlashCaptureWave         ; bright/dim white flash across the captured cards + the revealed card
     ld a,1
     ld (RevealInPlace),a
     ld a,(Played)
@@ -2411,12 +2419,17 @@ DemoPlayerTurn:
     ld a,(AIOpt)
     call MaskToCapSel            ; CapSel = captured set
     ld a,1
-    ld (HumanTurn),a             ; let HighlightCursor flash the in-hand card
+    ld (HumanTurn),a
     call PaintAll                ; card still in Player[BestSlot] -> drawn in the hand
-    call HighlightCursor
+    ld a,(BestSlot)              ; flash the played card in the hand with the capture wave
+    call HandAttrHL
+    ld a,l
+    ld (WaveTopCol),a
+    ld a,h
+    ld (WaveTopHi),a
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
-    call FlashCaptureWave        ; gold ripples left->right across the captured cards
+    call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
     xor a
     ld (HumanTurn),a
     ld a,(BestSlot)              ; now remove it and resolve (no slide, no on-table show)
@@ -7470,7 +7483,7 @@ HighlightCursor:
     ret z
     ld a,(Cursor)
     call HandAttrHL
-    ld a,0x70                    ; solid GOLD highlight (was 0xF8 hardware FLASH); .wait pulses it
+    ld a,0x38                    ; dim-white resting highlight (the .wait/.cw loop pulses it bright<->dim)
     jp FillHandAttr
 
 ; UnhighlightCursor: restore the cursor slot to its normal colour (card or field)
@@ -7499,11 +7512,11 @@ PulseChoice:
     inc (hl)
     ld a,(hl)
     and 0x10
-    ld a,0x78                    ; off phase: candidates white, hand bright white
+    ld a,0x78                    ; off phase: bright white (both the candidates and the in-hand card)
     ld b,0x78
     jr z,.set
-    ld a,0x70                    ; on phase: candidates gold
-    ld b,0x38                    ; on phase: hand dim white
+    ld a,0x38                    ; on phase: dim white -- the white pulse, no yellow
+    ld b,0x38
 .set:
     ld (FlashCol),a              ; candidate colour for FlashTableCard
     ld a,b                       ; hand-card colour
@@ -7596,7 +7609,7 @@ PaintChoice:
     call HighlightCursor         ; the played card is still in your hand -> flash it there (no table overlap)
     pop af
     call MaskToCapSel
-    ld a,0x70                    ; candidate preview -> solid gold (the pulse loop animates from here)
+    ld a,0x38                    ; candidate preview -> dim white (the .cw pulse loop animates from here)
     ld (FlashCol),a
     ld a,(TableN)
     ld c,a
@@ -7793,7 +7806,7 @@ FlashCaptured:
 ; Every captured table card (CapSel) + the played card pulse bright<->dim WHITE together (like the
 ; cursor highlight but twice as fast), for 4 cycles, ending on white before they vanish. HALT-synced
 ; (tear-free); the card bitmaps are untouched -- only attributes change. Restored by the next PaintAll.
-WAVE_FLASH = 72                  ; total flash frames: toggle every 8 -> 4 bright/dim cycles, ends white
+WAVE_FLASH = 45                  ; total flash frames: toggle every 5 -> 4 bright/dim cycles, ends white (~40% faster)
 FlashCaptureWave:
     ld a,(TableN)                ; K = captured + WavePlayed; ret if nothing to flash
     ld b,a
@@ -7828,13 +7841,21 @@ FlashCaptureWave:
 .cwf:
     halt
     call DemoCheckSpace          ; demo: a SPACE during the flash still bails to the menu (clobbers A)
-    ld a,(WaveF)                 ; flash colour: bright white <-> dim white, toggling every 8 frames
-    and 8                        ; -> twice the cursor's 16-frame rate (4 cycles over WAVE_FLASH, ends white)
-    ld a,0x78                    ; bright white
-    jr z,.cwcol
+    ld a,(WaveF)                 ; flash colour: bright <-> dim white, toggling every 5 frames (~40% faster)
+.cwm10:
+    cp 10
+    jr c,.cwm10d
+    sub 10
+    jr .cwm10                    ; A = WaveF mod 10
+.cwm10d:
+    cp 5
+    ld a,0x78                    ; bright white (first half of each 10-frame cycle)
+    jr c,.cwcol
     ld a,0x38                    ; dim white
 .cwcol:
     ld (WaveFlashCol),a
+    ld a,0x59
+    ld (WaveRowHi),a             ; the table cards live on the band (rows 8-15)
     ld e,0                       ; table index
 .cwc:
     ld a,e
@@ -7863,13 +7884,23 @@ FlashCaptureWave:
 .cwplayed:                       ; the played card on the table (slot TableN) flashes too
     ld a,(WavePlayed)
     or a
-    jr z,.cwd
+    jr z,.cwtop
     ld a,(TableN)
     call CardVisWidth
     ld (WaveWidth),a
     ld a,(TableN)
     call TableSlotCol
     ld d,a
+    call SweepCardCol
+.cwtop:                          ; crowded capture: the played card (in hand / opp-top slot) flashes too
+    ld a,(WaveTopCol)
+    cp 0xFF
+    jr z,.cwd
+    ld d,a                       ; D = its col
+    ld a,(WaveTopHi)
+    ld (WaveRowHi),a             ; its attr row (0x58 opp-top / 0x5A player-hand)
+    ld a,6
+    ld (WaveWidth),a             ; full 6-wide (it's not on the overlapped band)
     call SweepCardCol
 .cwd:
     ld hl,WaveF
@@ -7879,6 +7910,8 @@ FlashCaptureWave:
     jp c,.cwf
     xor a
     ld (WavePlayed),a            ; consume (defaults to 0 for the crowded-capture callers)
+    ld a,0xFF
+    ld (WaveTopCol),a            ; consume the crowded top-card flag
     ret
 
 ; CardVisWidth: A = slot index -> A = visible width (gap to the next card's clamped col, clamped 1..6,
@@ -7906,7 +7939,8 @@ CardVisWidth:
 ; the current flash colour (bright/dim white). Bitmap untouched -- the card art shows through.
 SweepCardCol:
     ld l,d
-    ld h,0x59                    ; HL = 0x5900 + col
+    ld a,(WaveRowHi)             ; attr-row high byte (0x59 table band / 0x58 opp-top / 0x5A player-hand)
+    ld h,a
     ld a,(WaveFlashCol)
     ld e,a                       ; E = flash colour
     ld c,8                       ; row count
@@ -7927,49 +7961,18 @@ SweepCardCol:
     jr nz,.scr
     ret
 
-; FlashCardRegion: D=col, E=char-row -> OR the FLASH bit into a 6x8 card's attribute cells
-; (so a card drawn straight to the screen flashes in place). Cleared by the next PaintAll.
-FlashCardRegion:
-    ld h,0
-    ld l,e
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl                    ; E*32
-    ld a,l
-    add a,d
-    ld l,a
-    ld a,h
-    adc a,0x58
-    ld h,a                       ; HL = 0x5800 + E*32 + col
-    ld c,8
-.fr_row:
-    ld b,6
-    push hl
-.fr_col:
-    ld (hl),0x70                 ; solid GOLD (was OR 0x80 hardware FLASH) -- opp in-place reveal
-    inc hl
-    djnz .fr_col
-    pop hl
-    push bc
-    ld bc,32
-    add hl,bc
-    pop bc
-    dec c
-    jr nz,.fr_row
-    ret
-
 ; ShowCapture: draw the played card onto the table, flash it + the captured
 ; set (CapSel), then pause -- so you SEE what was taken before it moves to a pile.
 ShowCapture:
     call PaintAll
     call DrawPlayedCard          ; played card sits just past the table cards
     ld a,1
-    ld (WavePlayed),a            ; the played card is on the table -> sweep it as the last wave card
+    ld (WavePlayed),a            ; the played card is on the table -> flash it as the last wave card
+    ld a,0xFF
+    ld (WaveTopCol),a            ; non-crowded -> no separate in-hand/top card to flash
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
-    call FlashCaptureWave        ; gold ripples left->right across the captured cards + the played card
+    call FlashCaptureWave        ; bright/dim white flash across the captured cards + the played card
     ret
 
 ; ShowScopa: flash a SCOPA! banner across the middle.
