@@ -84,6 +84,7 @@ WavePlayed: defs 1                ; 1 = also sweep the played card (on the table
 WaveWidth: defs 1                  ; capture gold-wave: current card's visible width (overlap-clamped)
 WaveMaxSlot: defs 1               ; capture gold-wave: rightmost swept card's slot (for the width clamp)
 WaveLoc:   defs 1                  ; capture gold-wave: local frame, stashed across the TableSlotCol calls
+WaveIdx:   defs 1                  ; capture gold-wave: table index, stashed (TableSlotCol clobbers E)
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -7800,12 +7801,14 @@ FlashCaptureWave:
     jr z,.cws
     push bc
     push de
+    ld a,e
+    ld (WaveIdx),a               ; stash the table index -- TableSlotCol (in CardVisWidth) clobbers E
     call WaveLocalC              ; A = local (uses C = order; before TableSlotCol clobbers C)
     ld (WaveLoc),a
-    ld a,e
+    ld a,(WaveIdx)
     call CardVisWidth            ; overlap-clamped visible width -> WaveWidth (no bleed onto neighbours)
     ld (WaveWidth),a
-    ld a,e
+    ld a,(WaveIdx)
     call TableSlotCol
     ld d,a                       ; D = col
     ld a,(WaveLoc)
