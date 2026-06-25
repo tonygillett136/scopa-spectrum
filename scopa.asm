@@ -7964,10 +7964,20 @@ SweepCardCol:
 ; ShowCapture: draw the played card onto the table, flash it + the captured
 ; set (CapSel), then pause -- so you SEE what was taken before it moves to a pile.
 ShowCapture:
-    call PaintAll
-    call DrawPlayedCard          ; played card sits just past the table cards
+    ; Draw the played card INTO THE SHADOW before the blit. The slide left it only on the live screen,
+    ; so a plain PaintAll (shadow has felt at its slot) would ERASE then DrawPlayedCard re-draw it -> a
+    ; lone blink of the played card just before the wave (Tony spotted it). With it in the shadow the
+    ; delta is a no-op there -> no blink. (RenderShadow leaves ScrOfs=0x20, so DrawPlayedCard targets it.)
+    call RenderShadow
+    call DrawPlayedCard          ; -> shadow @ slot TableN
+    xor a
+    ld (ScrOfs),a                ; back to the live screen
+    ld (DBstart),a
+    ld a,24
+    ld (DBend),a
+    call DeltaBlit               ; screen <- shadow (played card included) -> tear-free, no lone blink
     ld a,1
-    ld (WavePlayed),a            ; the played card is on the table -> flash it as the last wave card
+    ld (WavePlayed),a            ; the played card flashes as the last wave card
     ld a,0xFF
     ld (WaveTopCol),a            ; non-crowded -> no separate in-hand/top card to flash
     ld hl,CaptureJingle
