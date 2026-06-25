@@ -86,6 +86,7 @@ WaveMaxSlot: defs 1               ; capture gold-wave: rightmost swept card's sl
 WaveLoc:   defs 1                  ; capture gold-wave: local frame, stashed across the TableSlotCol calls
 WaveIdx:   defs 1                  ; capture gold-wave: table index, stashed (TableSlotCol clobbers E)
 FlashCol:  defs 1                  ; fill colour for FlashTableCard (gold preview / pulsing choose flash)
+WaveWhite: defs 1                  ; capture glint: 1 = settle the cards to plain white (final pause frames)
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -2102,11 +2103,13 @@ PlayerTurn:
     jr nz,.right
     jr .wait
 .left:                           ; attr-only highlight move -> no flicker
+    halt                         ; vblank-sync: hand attrs are bottom-of-screen, write them ahead of the beam
     call UnhighlightCursor
     call CursorPrev
     call HighlightCursor
     jr .wait
 .right:
+    halt
     call UnhighlightCursor
     call CursorNext
     call HighlightCursor
@@ -7841,6 +7844,16 @@ FlashCaptureWave:
 .cwf:
     halt
     call DemoCheckSpace          ; demo: a SPACE during the wave still bails to the menu (clobbers A)
+    ld a,(WaveTotal)             ; WaveWhite = 1 for the last WAVE_PAUSE frames -> settle to plain white
+    sub WAVE_PAUSE
+    ld b,a
+    ld a,(WaveF)
+    cp b
+    ld a,0
+    jr c,.cwnw                   ; WaveF < threshold -> still scrolling stripes
+    ld a,1
+.cwnw:
+    ld (WaveWhite),a
     ld e,0                       ; table index
     ld c,0                       ; capture order k
 .cwc:
@@ -7894,7 +7907,7 @@ FlashCaptureWave:
     ld a,(hl)
     ld hl,WaveTotal
     cp (hl)
-    jr c,.cwf
+    jp c,.cwf
     xor a
     ld (WavePlayed),a            ; consume (defaults to 0 for the crowded-capture callers)
     ret
@@ -7937,17 +7950,62 @@ CardVisWidth:
     ld a,6
     ret
 
+; FillCardWhite: D=col, WaveWidth -> fill the card's 8 rows x WaveWidth cells plain WHITE (0x78).
+FillCardWhite:
+    ld l,d
+    ld h,0x59                    ; HL = 0x5900 + col
+    ld c,8                       ; row count
+.fwr:
+    push hl
+    ld a,(WaveWidth)
+    ld b,a
+.fwc:
+    ld (hl),0x78
+    inc hl
+    djnz .fwc
+    pop hl
+    ld de,32
+    add hl,de
+    dec c
+    jr nz,.fwr
+    ret
+
+; PhaseWaveLUT: the glint's scroll position per frame -- a half-speed linear ramp (~0.5 cell/frame) plus
+; a subtle sine wobble (amp 0.8, period 20) so the scroll gently speeds up and slows down ("wavey life").
+; Monotonic (never reverses). Indexed by WaveF (0..63).
+PhaseWaveLUT:
+    db  0, 1, 1, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7
+    db  7, 8, 9, 9,10,11,11,12,13,13,14,14,14,15,15,15
+    db 16,16,16,17,17,18,19,19,20,21,21,22,23,23,24,24
+    db 24,25,25,25,26,26,26,27,27,28,29,29,30,31,31,32
+
 ; SweepCardCol: D=col, reads WaveF (scroll phase) + WaveWidth -> paint the card's 8 rows x WaveWidth
 ; cells as 45-degree "/" stripes (2 cells wide), GOLD/WHITE: stripe = (scol + srow - WaveF) & 3, gold
 ; if < 2. scol+srow constant runs along "/" (leans right); as WaveF advances each frame the stripes
 ; scroll down-right -> an angled glint runs across ALL the captured cards at once. Bitmap untouched
 ; (the black card art shows through over the striped paper). The local arg is ignored (global phase).
 SweepCardCol:
+    ld a,(WaveWhite)
+    or a
+    jp nz,FillCardWhite          ; final pause -> settle the card to plain white before it vanishes
+    ld a,(WaveF)
+    ld hl,PhaseWaveLUT
+    add a,l
+    ld l,a
+    jr nc,.pl
+    inc h
+.pl:
+    ld e,(hl)                    ; phase = PhaseWaveLUT[WaveF]: half-speed ramp + a subtle sine "wavey" wobble
     ld a,d                       ; col
-    add a,8                      ; + screen char-row 8 (top of the table band)
-    ld hl,WaveF
-    sub (hl)                     ; stripe = scol + srow - phase (cell 0, row 0)
-    ld c,a                       ; C = stripe value at this card's top-left cell
+    add a,108                    ; + srow(8) + 100 (a *10 bias so col+108-phase stays >=0; pattern is mod 10)
+    sub e                        ; = scol + srow - phase  (row 0, cell 0)
+.mod:
+    cp 10
+    jr c,.modd
+    sub 10
+    jr .mod                      ; A = (scol+srow-phase) mod 10  -> index into the 10-wide band pattern
+.modd:
+    ld c,a                       ; C = row-0 pattern index
     ld l,d                       ; L = col -> HL = 0x5900 + col
     ld h,0x59
     ld d,8                       ; D = row count (col now saved in L)
@@ -7955,26 +8013,42 @@ SweepCardCol:
     push hl
     ld a,(WaveWidth)
     ld b,a                       ; B = width
-    ld a,c                       ; A = stripe value, cell 0 of this row
+    ld a,c                       ; A = pattern index, cell 0 of this row
 .cell:
     push af
-    and 3
     cp 2
-    ld a,0x78                    ; white (stripe 2,3)
-    jr nc,.put
-    ld a,0x70                    ; gold (stripe 0,1)
-.put:
+    jr c,.cy                     ; index 0,1 -> yellow band
+    cp 4
+    jr c,.cw                     ; index 2,3 -> white band
+    cp 6
+    jr c,.cy                     ; index 4,5 -> yellow band
+.cw:                             ; index 6,7,8,9 -> the 2x white band
+    ld a,0x78
+    jr .cput
+.cy:
+    ld a,0x70
+.cput:
     ld (hl),a
     inc hl
     pop af
-    inc a                        ; next cell to the right -> stripe + 1 (the "/" lean)
+    inc a                        ; next cell to the right -> pattern + 1 (the "/" lean)
+    cp 10
+    jr c,.cnw
+    xor a                        ; wrap 10 -> 0
+.cnw:
     djnz .cell
     pop hl
     push de
     ld de,32
     add hl,de
     pop de
-    inc c                        ; next row down -> stripe + 1
+    ld a,c                       ; next row down -> (index+1) mod 10
+    inc a
+    cp 10
+    jr c,.rnw
+    xor a
+.rnw:
+    ld c,a
     dec d
     jr nz,.row
     ret
