@@ -77,6 +77,10 @@ ScrOfs:    defs 1                  ; high-byte add: 0x00=screen, 0x20=shadow(0x6
 AttrOfs:   defs 1                  ; attr high-byte add (0x00=live 0x5800, 0x20=0x7800 build buffer) --
                                    ; lets a text screen build its colours OFF-screen for a synced reveal
 HumanTurn: defs 1                  ; 1 only while the player is choosing -> cursor flashes
+CursorPhase: defs 1               ; software cursor glow: frame counter (bit 3 -> white/gold toggle)
+WaveF:     defs 1                  ; capture gold-wave: current frame of the staggered sweep
+WaveTotal: defs 1                  ; capture gold-wave: total frames = (K-1)*STAG + SWEEP + PAUSE
+WaveBand:  defs 1                  ; capture gold-wave: the gold band row (0..7) of the card being drawn
 Pnapola:   defs 1                  ; Neapolitan (napola) points this round
 Onapola:   defs 1
 NapWhich:  defs 1
@@ -170,6 +174,45 @@ Start:
     call ShowWinOpp
 .h62:
     jr .h62
+    ENDIF
+    IF TESTMODE == 63
+    ; capture gold-wave preview: a 6-card table, all captured, LOOP the staggered sweep
+    call NewMatch
+    call NewRound
+    ld a,6
+    ld (TableN),a
+    ld hl,Table
+    ld (hl),0
+    inc hl
+    ld (hl),6
+    inc hl
+    ld (hl),12
+    inc hl
+    ld (hl),9
+    inc hl
+    ld (hl),18
+    inc hl
+    ld (hl),22
+    ld hl,Player
+    ld b,3
+    call BlankFF
+    ld hl,Opp
+    ld b,3
+    call BlankFF
+    call PaintAll
+    ld hl,CapSel
+    ld b,6
+.c63:
+    ld (hl),1
+    inc hl
+    djnz .c63
+    ei
+.l63:
+    call FlashCaptureWave
+    call PaintAll
+    ld b,2
+    call Delay
+    jr .l63
     ENDIF
     IF TESTMODE == 1
     call ScoreTestSetup
@@ -2037,6 +2080,7 @@ PlayerTurn:
     or a
     jr nz,.drain
 .wait:
+    call PulseCursor             ; HALT-paced software cursor glow (white<->gold) while choosing
     call ReadKeys
     or a
     jr z,.wait
@@ -2102,11 +2146,9 @@ PlayerTurn:
     call MaskToCapSel            ; CapSel = the captured set
     call PaintAll                ; card is still in your hand -> drawn there
     call HighlightCursor         ; flash it in the hand
-    call FlashCaptured           ; flash the table cards it takes
     ld hl,CaptureJingle
-    call PlayJingle
-    ld b,2
-    call Delay
+    call PlayJingle              ; the capture ding
+    call FlashCaptureWave        ; gold ripples left->right across the captured cards
     ld a,(Cursor)                ; now remove it and resolve (no slide, no on-table show)
     ld hl,Player
     call addHLA
@@ -2270,11 +2312,9 @@ OppTurn:
     ld d,a
     ld e,0
     call FlashCardRegion          ; flash it in place
-    call FlashCaptured            ; flash the table cards it takes
     ld hl,CaptureJingle
-    call PlayJingle
-    ld b,2
-    call Delay
+    call PlayJingle               ; the capture ding
+    call FlashCaptureWave         ; gold ripples left->right across the captured cards
     ld a,1
     ld (RevealInPlace),a
     ld a,(Played)
@@ -2368,11 +2408,9 @@ DemoPlayerTurn:
     ld (HumanTurn),a             ; let HighlightCursor flash the in-hand card
     call PaintAll                ; card still in Player[BestSlot] -> drawn in the hand
     call HighlightCursor
-    call FlashCaptured
     ld hl,CaptureJingle
-    call PlayJingle
-    ld b,2
-    call Delay
+    call PlayJingle              ; the capture ding
+    call FlashCaptureWave        ; gold ripples left->right across the captured cards
     xor a
     ld (HumanTurn),a
     ld a,(BestSlot)              ; now remove it and resolve (no slide, no on-table show)
@@ -7386,6 +7424,34 @@ FillHandAttr:
 
 ; HighlightCursor: flash the selected hand card -- only while it's the player's turn
 ; (so the CPU's turn doesn't imply an available action), and not on an empty slot.
+; PulseCursor: the software cursor GLOW. HALT (frame-paces the choose loop), then set the cursor card's
+; attrs to white or GOLD on a slow phase -- bit 3 of CursorPhase toggles every 8 frames (~160ms) for a
+; warm breathing highlight. Only while it's the player's turn and the cursor is on a real card.
+PulseCursor:
+    halt
+    ld a,(HumanTurn)
+    or a
+    ret z
+    ld a,(Cursor)
+    ld hl,Player
+    call addHLA
+    ld a,(hl)
+    cp 0xFF
+    ret z                        ; cursor on an empty slot -> nothing to pulse
+    ld hl,CursorPhase
+    inc (hl)
+    ld a,(hl)
+    and 0x08
+    ld a,0x78                    ; off phase -> white
+    jr z,.set
+    ld a,0x70                    ; on phase -> gold
+.set:
+    push af
+    ld a,(Cursor)
+    call HandAttrHL
+    pop af
+    jp FillHandAttr
+
 HighlightCursor:
     ld a,(HumanTurn)
     or a
@@ -7398,7 +7464,7 @@ HighlightCursor:
     ret z
     ld a,(Cursor)
     call HandAttrHL
-    ld a,0xF8
+    ld a,0x70                    ; solid GOLD highlight (was 0xF8 hardware FLASH); .wait pulses it
     jp FillHandAttr
 
 ; UnhighlightCursor: restore the cursor slot to its normal colour (card or field)
@@ -7592,7 +7658,7 @@ FlashTableCard:
     push hl
     ld b,c                       ; width
 .fcl:
-    ld (hl),0xF8
+    ld (hl),0x70                 ; solid GOLD (was 0xF8 hardware FLASH) -- PaintChoice candidate preview
     inc hl
     djnz .fcl
     pop hl
@@ -7663,6 +7729,154 @@ FlashCaptured:
 .fcd:
     ret
 
+; ---- the software CAPTURE GOLD-WAVE (replaces the hardware-FLASH capture flash) ----
+; A gold band sweeps DOWN each captured table card (CapSel set); card k starts WAVE_STAG frames after
+; card k-1, so the gold ripples left->right across the captured row. HALT-synced (tear-free); the card
+; bitmaps are untouched -- only attributes change. Restored by the caller's next PaintAll.
+WAVE_SWEEP = 12                  ; frames for one card's glint to cross top->bottom
+WAVE_STAG  = 4                   ; per-card start delay (the "bit out of sync")
+WAVE_PAUSE = 8                   ; brief settle after the last card finishes
+FlashCaptureWave:
+    ld a,(TableN)                ; K = number of captured cards
+    ld b,a
+    ld e,0
+    ld c,0
+.cwk:
+    ld a,e
+    cp b
+    jr nc,.cwkd
+    ld hl,CapSel
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.cwkn
+    inc c
+.cwkn:
+    inc e
+    jr .cwk
+.cwkd:
+    ld a,c
+    or a
+    ret z                        ; nothing captured -> nothing to do
+    dec a                        ; K-1
+    ld b,a
+    ld a,WAVE_SWEEP+WAVE_PAUSE
+    inc b
+    dec b
+    jr z,.cwt0                   ; K==1 -> no stagger term
+.cwtl:
+    add a,WAVE_STAG
+    djnz .cwtl
+.cwt0:
+    ld (WaveTotal),a             ; total frames
+    xor a
+    ld (WaveF),a
+.cwf:
+    halt
+    call DemoCheckSpace          ; demo: a SPACE during the wave still bails to the menu (clobbers A)
+    ld e,0                       ; table index
+    ld c,0                       ; capture order k
+.cwc:
+    ld a,e
+    ld hl,TableN
+    cp (hl)
+    jr nc,.cwd
+    ld hl,CapSel
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.cws
+    push bc
+    push de
+    ld a,e
+    call TableSlotCol            ; D = clamped col of this captured card
+    ld d,a
+    ld a,c                       ; B = k*WAVE_STAG (general, so WAVE_STAG stays tunable)
+    ld b,a
+    xor a
+    inc b
+    dec b
+    jr z,.cwl0
+.cwlk:
+    add a,WAVE_STAG
+    djnz .cwlk
+.cwl0:
+    ld b,a
+    ld a,(WaveF)
+    sub b                        ; A = local frame for this card (signed)
+    call SweepCardCol
+    pop de
+    pop bc
+    inc c
+.cws:
+    inc e
+    jr .cwc
+.cwd:
+    ld hl,WaveF
+    inc (hl)
+    ld a,(hl)
+    ld hl,WaveTotal
+    cp (hl)
+    jr c,.cwf
+    ret
+
+; SweepCardCol: D=col, A=local (signed frame offset) -> draw the 6-wide card at col D, rows 8-15 with
+; a 2-row GOLD band at (local mapped 0..7), the rest WHITE. local<0 (>=0x80) or >=SWEEP -> all white.
+SweepCardCol:
+    ld c,0xFF                    ; band row = none
+    cp 0x80
+    jr nc,.scb                   ; local negative -> card hasn't started
+    cp WAVE_SWEEP
+    jr nc,.scb                   ; local past the sweep -> done
+    add a,a
+    add a,a
+    add a,a                      ; local*8
+    ld b,0
+.scdv:
+    sub WAVE_SWEEP
+    jr c,.scdd
+    inc b
+    jr .scdv
+.scdd:
+    ld c,b                       ; band row = local*8 / SWEEP  (0..7)
+.scb:
+    ld a,c
+    ld (WaveBand),a
+    ld a,d
+    ld l,a
+    ld h,0x59                    ; 0x5900 = attr row 8 (table top)
+    ld c,8                       ; 8 char-rows
+    ld e,0                       ; current row 0..7
+.scr:
+    ld a,(WaveBand)
+    cp e
+    jr z,.scgold
+    inc a                        ; +1 -> a 2-row band (fatter glint)
+    cp e
+    jr z,.scgold
+    ld a,0x78                    ; white
+    jr .scf
+.scgold:
+    ld a,0x70                    ; gold
+.scf:
+    ld b,6
+    push hl
+.scfc:
+    ld (hl),a
+    inc hl
+    djnz .scfc
+    pop hl
+    push de
+    ld de,32
+    add hl,de
+    pop de
+    inc e
+    dec c
+    jr nz,.scr
+    ret
+
 ; FlashCardRegion: D=col, E=char-row -> OR the FLASH bit into a 6x8 card's attribute cells
 ; (so a card drawn straight to the screen flashes in place). Cleared by the next PaintAll.
 FlashCardRegion:
@@ -7684,9 +7898,7 @@ FlashCardRegion:
     ld b,6
     push hl
 .fr_col:
-    ld a,(hl)
-    or 0x80
-    ld (hl),a
+    ld (hl),0x70                 ; solid GOLD (was OR 0x80 hardware FLASH) -- opp in-place reveal
     inc hl
     djnz .fr_col
     pop hl
