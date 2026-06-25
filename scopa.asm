@@ -2336,6 +2336,18 @@ OppTurn:
     call ResolvePlay
     xor a
     ld (RevealInPlace),a
+    ; the played card was revealed at the TOP (rows 0-7); PaintAll's per-cell delta can't erase it
+    ; ahead of the beam there -> 'blinds' on removal (Tony's CRT). RenderShadow (gap at the played
+    ; slot), then HALT + a direct EraseCardRegion restores the top slot tear-free -- symmetric with
+    ; the reveal's direct BlitCard. PaintAll then finalizes (the top already matches -> delta skips it).
+    call RenderShadow
+    xor a
+    ld (ScrOfs),a
+    halt
+    ld a,(SlHandCol)
+    ld d,a
+    ld e,0
+    call EraseCardRegion
     call PaintAll
     ld b,1
     call Delay
