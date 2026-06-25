@@ -57,7 +57,14 @@ LOADER = ([0xF3]                                          # di
           + [0x21,0x00,0x58, 0x11,0x01,0x58, 0x01,0xFF,0x02, 0x36,0x00, 0xED,0xB0]  # blank attrs 0x5800.. black
           + ldbytes(0xE100, len(decoder))                 # decoder (incl. dzx0) FIRST
           + ldbytes(0x6000, len(loadzx0))                 # compressed loading screen -> scratch @0x6000
-          + [0x21,0x00,0x60, 0x11,0x00,0x40] + [0xCD]+w16(DZX0)  # ld hl,0x6000:ld de,0x4000:call dzx0 -> POP-IN
+          # V-SYNCED reveal (no "horizontal blinds"): decode the screen to a SHADOW @0xC000 (free until the
+          # deck loads there later), copy the bitmap to 0x4000 under the still-black attrs (invisible), then
+          # sync to the top border and LDIR the 768 attrs in one beam-locked colour flip. The loader is di'd,
+          # so the vsync is ei:halt:di -- one frame, which the next block's long pilot leader absorbs (no desync).
+          + [0x21,0x00,0x60, 0x11,0x00,0xC0] + [0xCD]+w16(DZX0)               # decode SCR -> shadow @0xC000
+          + [0x21,0x00,0xC0, 0x11,0x00,0x40, 0x01,0x00,0x18, 0xED,0xB0]       # ldir bitmap 0xC000->0x4000 (6144)
+          + [0xFB, 0x76, 0xF3]                                                # ei : halt : di  -> vblank
+          + [0x21,0x00,0xD8, 0x11,0x00,0x58, 0x01,0x00,0x03, 0xED,0xB0]       # ldir attrs 0xD800->0x5800 (768)
           + ldbytes(0x8000, len(code))
           + ldbytes(0x6000, len(title))                   # title overwrites the loading.zx0 scratch
           + ldbytes(0x6000+len(title), len(title2))
