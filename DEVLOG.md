@@ -1161,3 +1161,61 @@ Interrupts are on by ShowTitle (Start does im1+ei), so the HALTs are safe. Verif
 renders (TM1 scores / TM10 win / TM57-59 banners / new TM62 lose / driven menu+how-to+real-game) + a
 70s demo with no transition hang; return-from-how-to re-decodes the title cleanly. tap 35.0KB.
 CRT-pending: blinds-free on real hardware. Technique -> animation note section 11.
+
+
+## Software capture/cursor flash rework + v-synced loader + removal tear fixes -- SHIPPED (2026-06-25)
+A long CRT-feedback iteration with Tony to replace the hardware-FLASH (0xF8 attribute-invert) capture
+and cursor highlights with a software flash, plus several real-hardware tear fixes the rework surfaced.
+End result: a clean cursor-style **bright(0x78) <-> dim(0x38) WHITE pulse** everywhere -- no yellow.
+
+**The flash saga (capture animation).** Iterated: hardware FLASH (0xF8) -> solid gold (0x70) -> a
+staggered gold WAVE (a gold band sweeping down each captured card, card k delayed WAVE_STAG behind k-1,
+a left->right ripple) -> Tony's idea of a **45-deg "/" diagonal gold/white STRIPE glint** (a global
+scrolling stripe field masked to the captured cards, with a subtle sine-"wavey" scroll speed via a
+precomputed PhaseWaveLUT) -> Tony "looks out of place" -> **FINAL**: a simple synchronized bright-white
+<-> dim-white pulse like the cursor, toggling every 5 frames (~40% faster than the earlier 2x-cursor
+8-frame rate), 4 cycles ending on white, then the cards vanish. `FlashCaptureWave` loops WaveF
+0..WAVE_FLASH=45, sets `WaveFlashCol` per frame (WaveF mod 10 < 5 -> bright else dim); `SweepCardCol`
+is now a plain card-fill. DELETED all the dead diagonal machinery (WaveLocalC, FillCardWhite,
+PhaseWaveLUT, FlashCardRegion, the WAVE_SWEEP/STAG/PAUSE/BAND consts) -- ~110 lines + the LUT.
+
+**Killed gold everywhere.** Two spots still flashed gold after the wave went white: (a) the
+CROWDED-TABLE played card -- on a full table it's shown in place (opp: revealed at its top slot;
+player: left in hand) and was flashed solid gold (HighlightCursor / FlashCardRegion) separate from the
+white wave. Folded INTO `FlashCaptureWave` via `WaveTopCol`/`WaveTopHi` (+ `WaveRowHi`, which retargets
+SweepCardCol's attr-row high byte to 0x58 opp-top / 0x5A player-hand / 0x59 table band) so it pulses
+white in step. (b) the MULTI-CAPTURE CHOICE -- `PulseChoice` now pulses the candidates + in-hand card
+white, and `PaintChoice`'s preview + `HighlightCursor`'s resting highlight went gold(0x70) ->
+dim-white(0x38), so there's no yellow even during the key-release wait.
+
+**Cursor.** Glow is a white 0x78<->0x38 pulse (`PulseCursor`), 16-frame toggle (50% slower than the
+first try, on Tony's call). The cursor MOVE (.left/.right) was tearing -- it un/re-highlighted the
+bottom-of-screen hand attrs straight after the key-release busy-wait (mid-frame); added a HALT so the
+move is vblank-synced like the pulse.
+
+**Two removal tear fixes (Tony's CRT):** (1) LONE "BLINK BEFORE THE WAVE" -- the slide leaves the
+played card only on the LIVE screen, so ShowCapture's PaintAll (renders from the shadow, felt at that
+slot) ERASED then DrawPlayedCard re-drew it = a one-frame blink of just the played card. Fix: draw the
+played card INTO the shadow before the delta (RenderShadow leaves ScrOfs=0x20) so the blit is a no-op
+there. (2) CROWDED OPP CAPTURE, "BLINDS" ON REMOVAL -- the played card is revealed at the very TOP
+(rows 0-7) where the per-cell DeltaBlit can't keep ahead of the beam, so the final PaintAll's removal
+tore. The reveal already dodges this with a direct HALT+BlitCard; the removal now matches --
+RenderShadow (gap at the played slot) + HALT + direct EraseCardRegion restores the top slot ahead of
+the beam, PaintAll then finalizes. Tony's framing: "blinds" are specifically an ATTRIBUTE tear (the
+ULA latches attrs per scanline), so setting the cells to felt tear-free (EraseCardRegion does attr +
+bitmap in one pass) avoids them.
+
+**Loading screen v-synced (build_tap.py loader).** It already blanked attrs to black + decoded the
+bitmap invisibly, but the colours appeared as the TAIL of the ZX0 stream (not beam-locked). Now the ML
+loader decodes the screen to a SHADOW @0xC000 (free until the deck loads there), LDIRs the bitmap ->
+0x4000 under the still-black attrs, then `ei:halt:di` (the loader runs di'd) + LDIRs the 768 attrs in
+one beam-locked flip. Loader 147 B (fits the printer buffer @23296). The emulator fast-loads so the
+brief reveal can't be sampled visually -- verified the tape boots end-to-end to the correct title;
+relied on Tony's TZXDuino for the actual tear-free reveal.
+
+**Shipped.** Worked on branch `software-flash` (kept for rollback), merged to main when Tony said "All
+looks great"; redeployed both domains (scopa-spectrum.pages.dev + the custom domain) + the in-browser
+Qaop snapshot (`qaop/bin/scopa.sna`); refreshed the gameplay GIF to a current-build attract-demo
+montage (built from the TESTMODE=61 demo build, then restored the normal build + reconfirmed root sna
+== shipped sna). tap 35.6 KB / tzx 35.9 KB / sna 49179 B; all verified live byte-for-byte vs local.
+CRT-signed-off by Tony across the rounds. Techniques -> animation note + tape-loader note + hw-laws.
