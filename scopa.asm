@@ -2163,17 +2163,30 @@ PlayerTurn:
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
     call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
-    ld a,(Cursor)                ; now remove it and resolve (no slide, no on-table show)
+    ld a,(Cursor)                ; remove the played card from the hand (data)
     ld hl,Player
     call addHLA
     ld (hl),0xFF
     xor a
     ld (HumanTurn),a
+    ; remove the played card from the hand DISPLAY first, so it vanishes WITH the captured cards
+    ; (before the re-zip), not last after it. Tear-free attr+bitmap restore (Tony: don't regress that):
+    ; RenderShadow now has the gap (Player[Cursor]=0xFF) -> HALT + direct EraseCardRegion at the hand.
+    call RenderShadow
+    xor a
+    ld (ScrOfs),a
+    halt
+    ld a,(Cursor)
+    call HandAttrHL
+    ld a,l
+    ld d,a
+    ld e,16
+    call EraseCardRegion
     ld a,1
     ld (RevealInPlace),a
     ld a,(Played)
     ld c,0
-    call ResolvePlay
+    call ResolvePlay             ; NOW remove the captured table cards + re-zip the survivors
     xor a
     ld (RevealInPlace),a
     call FixCursor
@@ -2329,17 +2342,11 @@ OppTurn:
     ld hl,CaptureJingle
     call PlayJingle               ; the capture ding
     call FlashCaptureWave         ; bright/dim white flash across the captured cards + the revealed card
-    ld a,1
-    ld (RevealInPlace),a
-    ld a,(Played)
-    ld c,1
-    call ResolvePlay
-    xor a
-    ld (RevealInPlace),a
-    ; the played card was revealed at the TOP (rows 0-7); PaintAll's per-cell delta can't erase it
-    ; ahead of the beam there -> 'blinds' on removal (Tony's CRT). RenderShadow (gap at the played
-    ; slot), then HALT + a direct EraseCardRegion restores the top slot tear-free -- symmetric with
-    ; the reveal's direct BlitCard. PaintAll then finalizes (the top already matches -> delta skips it).
+    ; Remove the revealed played card from the TOP slot FIRST, so it vanishes WITH the captured table
+    ; cards (before the re-zip) instead of last after it (Tony's CRT). KEEP it tear-free (Tony: don't
+    ; regress the attr-restore): the reveal + flash only touched the LIVE screen, so RenderShadow still
+    ; has the gap at the played slot (and the captured cards), then HALT + direct EraseCardRegion
+    ; restores the top slot (attr + bitmap) ahead of the beam -- a per-cell PaintAll delta 'blinds' here.
     call RenderShadow
     xor a
     ld (ScrOfs),a
@@ -2348,6 +2355,13 @@ OppTurn:
     ld d,a
     ld e,0
     call EraseCardRegion
+    ld a,1
+    ld (RevealInPlace),a
+    ld a,(Played)
+    ld c,1
+    call ResolvePlay              ; NOW remove the captured table cards + re-zip the survivors
+    xor a
+    ld (RevealInPlace),a
     call PaintAll
     ld b,1
     call Delay
@@ -2444,15 +2458,28 @@ DemoPlayerTurn:
     call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
     xor a
     ld (HumanTurn),a
-    ld a,(BestSlot)              ; now remove it and resolve (no slide, no on-table show)
+    ld a,(BestSlot)              ; remove the played card from the hand (data)
     ld hl,Player
     call addHLA
     ld (hl),0xFF
+    ; remove the played card from the hand DISPLAY first (vanishes with the captured cards, before the
+    ; re-zip). Tear-free attr+bitmap restore: RenderShadow has the gap (Player[BestSlot]=0xFF) -> HALT
+    ; + direct EraseCardRegion at the hand.
+    call RenderShadow
+    xor a
+    ld (ScrOfs),a
+    halt
+    ld a,(BestSlot)
+    call HandAttrHL
+    ld a,l
+    ld d,a
+    ld e,16
+    call EraseCardRegion
     ld a,1
     ld (RevealInPlace),a
     ld a,(Played)
     ld c,0
-    call ResolvePlay
+    call ResolvePlay             ; NOW remove the captured table cards + re-zip the survivors
     xor a
     ld (RevealInPlace),a
     call PaintAll
