@@ -439,34 +439,6 @@ Start:
 .h50:
     jr .h50
     ENDIF
-    IF TESTMODE == 51
-    ; col-0 FLASH-wrap probe: a FULL 8-card table, flash EVERY card (CapSel all set), then leave
-    ; the attribute row visible for a dump. If any flash write wraps past col 31, col-0 attrs
-    ; (0x5900/0x5920/.../0x59E0) will carry the FLASH bit (0x80). Expect them CLEAN if no wrap.
-    ld hl,Table
-    ld b,8
-    xor a
-.t51:
-    ld (hl),a
-    inc hl
-    inc a
-    djnz .t51                    ; Table = ids 0..7 (8 cards, step 3)
-    ld a,8
-    ld (TableN),a
-    ld hl,CapSel
-    ld b,8
-    ld a,1
-.c51:
-    ld (hl),a
-    inc hl
-    djnz .c51                    ; CapSel[0..7] = 1 -> flash all
-    xor a
-    ld (ScrOfs),a
-    call PaintAll
-    call FlashCaptured           ; the exact crowded-capture flash path
-.h51:
-    jr .h51
-    ENDIF
     IF TESTMODE == 52
     ; ShowCapture probe (Tony's repro): 5-card table + a played card (drawn at col 26), capturing
     ; the rightmost table card. Dump attr row 8 + col-0 of rows 8-15, and eyeball the screenshot.
@@ -7811,36 +7783,6 @@ DrawPlayedCard:
     ld a,(Played)
     ld e,8
     call BlitCard
-    ret
-
-; FlashCaptured: flash every captured table card (CapSel set) via the hardware FLASH bit,
-; held by the caller's Delay. Shared by the crowded-table in-place capture displays.
-FlashCaptured:
-    ld a,0x70                    ; FlashTableCard fill colour -> gold
-    ld (FlashCol),a
-    ld a,(TableN)
-    ld c,a
-    ld e,0
-.fc:
-    ld a,e
-    cp c
-    jr nc,.fcd
-    ld hl,CapSel
-    ld a,e
-    call addHLA
-    ld a,(hl)
-    or a
-    jr z,.fcn
-    ld a,e
-    push bc
-    push de
-    call FlashTableCard
-    pop de
-    pop bc
-.fcn:
-    inc e
-    jr .fc
-.fcd:
     ret
 
 ; ---- the software CAPTURE FLASH (replaces the hardware-FLASH capture flash) ----
