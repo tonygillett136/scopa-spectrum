@@ -1231,3 +1231,19 @@ shadow already held the gap (the reveal + flash only touched the LIVE screen); t
 RenderShadow AFTER setting the slot 0xFF so the shadow has the gap there. Verified clean build + 36s demo
 (opp-top + player-hand crowded captures) no hang, board coherent, no gold. SHIPPED + redeployed both
 domains.
+
+**Follow-up (2026-06-26): choose-capture option-move tear + full tear audit + dead-code cull.** Tony's
+CRT: cycling between multiple capture options (O/P) tore the option highlight. PaintChoice did its board
+redraw via the HALT-synced PaintAll but then wrote the option highlights (HighlightCursor + the
+FlashTableCard candidate loop) MID-FRAME straight after, so the highlight attrs changed as the beam came
+down -> tear. Fix: compute MaskToCapSel (no screen writes) then HALT, so the highlight writes land at the
+frame top ahead of the beam (the steady .cw PulseChoice pulse was already fine -- it HALTs first; only the
+per-move repaint tore). THEN audited EVERY direct-write call site in the file for any other tear: the
+scores (PrintNum/PrintStr -> PrintChar adds ScrOfs, so even the top-left CPU count renders to the SHADOW,
+never the live screen), DemoOverlay, the deal cascade, the zip/re-pack, the banners/transitions -- all
+either shadow-then-DeltaBlit, HALT-before-direct-write, or vblank-synced. VERDICT: no other tear-prone
+writes; the choose-capture highlight was the last gap. Loose end culled: FlashCaptured (gold 0x70 + the
+hardware-FLASH bit, no HALT) was the LAST hardware-FLASH code left, dead in the release (only caller was
+IF TESTMODE==51, a col-0 wrap probe) -> deleted it + the testmode (-32 lines, 7333 lines now). The whole
+codebase is now uniformly "shadow-then-synced-copy, or HALT-before-direct-write". tap 35.6KB. CRT-signed
+off by Tony; SHIPPED + redeployed both domains.
