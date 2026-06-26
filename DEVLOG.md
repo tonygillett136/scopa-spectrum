@@ -1247,3 +1247,23 @@ hardware-FLASH bit, no HALT) was the LAST hardware-FLASH code left, dead in the 
 IF TESTMODE==51, a col-0 wrap probe) -> deleted it + the testmode (-32 lines, 7333 lines now). The whole
 codebase is now uniformly "shadow-then-synced-copy, or HALT-before-direct-write". tap 35.6KB. CRT-signed
 off by Tony; SHIPPED + redeployed both domains.
+
+**Follow-up (2026-06-26): full-table ace-capture top-card tear + sharper re-audit + RemoveCascade tidy.**
+Tony's CRT: a full table, CPU captures with an ace -> the ace (revealed at the opp's top hand slot, rows
+0-7) tore DURING the capture flash. FlashCaptureWave did one HALT per frame then flashed the table-band
+cards (.cwc loop, rows 8-15) and the top played card (.cwtop, rows 0-7) LAST. The beam draws rows 0-7
+FIRST, so on a FULL table the band loop ate enough of the ~14.3kT top-border budget that the ace's attr
+write landed after the beam had started it -> attribute tear. Fix: flash the top card FIRST, right after
+the HALT, before the band loop (.cwplayed now jumps straight to .cwd; the old trailing .cwtop is gone).
+Pure reorder -- same colour (white), same "all cards pulse together" look, tear-free. THEN re-ran the
+tear audit with a SHARPER criterion: not just "is there a HALT before the writes" but the within-frame
+WRITE ORDER vs the beam arrival on WORST-CASE data (max TableN=16). Verdict: the .cwtop-after-loop was the
+UNIQUE "loop-then-top-of-screen-write" shape in the whole file; every other HALT-synced path is either
+one-card-per-frame at the top (pre-warmed, the R30 path), band/bottom-only with ample budget, or a
+raster-order vblank attr flip -> NO other within-frame ordering risk. The original audit checked
+HALT-presence (necessary) but not write-order-vs-budget-on-worst-case-data (the missing sufficiency).
+TIDY (fork-flagged): removed RemoveCascade's now-dead `res 7` band un-flash loop -- it cleared the
+hardware-FLASH bit across the table band before the sweep, but the software flash sets no FLASH bit so
+the cards are already solid white (0x78) -> it was a per-frame value-preserving no-op. Verified clean
+build, ace sweep still clears (TM50 -> table band 100% felt), no hang. tap 35.6KB. CRT-signed off by
+Tony; SHIPPED + redeployed both domains.
