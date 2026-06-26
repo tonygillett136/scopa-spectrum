@@ -7837,6 +7837,20 @@ FlashCaptureWave:
     ld a,0x38                    ; dim white
 .cwcol:
     ld (WaveFlashCol),a
+    ; TOP played card FIRST: the opp-top / hand slot is at rows 0-7 = the TIGHTEST top-border budget.
+    ; On a full table, flashing it AFTER the table-band loop below lands its attr write past the beam
+    ; -> the ace tears (Tony's CRT). Do it up front, right after the HALT, while the whole top border
+    ; is still ahead of the raster; the table band (rows 8-15) has far more slack and follows.
+    ld a,(WaveTopCol)
+    cp 0xFF
+    jr z,.cwtopd
+    ld d,a                       ; D = its col
+    ld a,(WaveTopHi)
+    ld (WaveRowHi),a             ; its attr row (0x58 opp-top / 0x5A player-hand)
+    ld a,6
+    ld (WaveWidth),a             ; full 6-wide (not on the overlapped band)
+    call SweepCardCol
+.cwtopd:
     ld a,0x59
     ld (WaveRowHi),a             ; the table cards live on the band (rows 8-15)
     ld e,0                       ; table index
@@ -7867,23 +7881,13 @@ FlashCaptureWave:
 .cwplayed:                       ; the played card on the table (slot TableN) flashes too
     ld a,(WavePlayed)
     or a
-    jr z,.cwtop
+    jr z,.cwd                    ; (the top played card was already flashed up front)
     ld a,(TableN)
     call CardVisWidth
     ld (WaveWidth),a
     ld a,(TableN)
     call TableSlotCol
     ld d,a
-    call SweepCardCol
-.cwtop:                          ; crowded capture: the played card (in hand / opp-top slot) flashes too
-    ld a,(WaveTopCol)
-    cp 0xFF
-    jr z,.cwd
-    ld d,a                       ; D = its col
-    ld a,(WaveTopHi)
-    ld (WaveRowHi),a             ; its attr row (0x58 opp-top / 0x5A player-hand)
-    ld a,6
-    ld (WaveWidth),a             ; full 6-wide (it's not on the overlapped band)
     call SweepCardCol
 .cwd:
     ld hl,WaveF
