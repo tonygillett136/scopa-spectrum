@@ -7645,9 +7645,11 @@ PlayerChooseCapture:
 PaintChoice:
     push af
     call PaintAll
-    call HighlightCursor         ; the played card is still in your hand -> flash it there (no table overlap)
     pop af
-    call MaskToCapSel
+    call MaskToCapSel            ; CapSel = this option's captured set (compute only -- no screen writes)
+    halt                         ; sync the highlight writes to the frame top so they land ahead of the
+                                 ; beam -- else the option highlights tear as you move between options (Tony)
+    call HighlightCursor         ; the played card in hand -> dim white (tear-free now)
     ld a,0x38                    ; candidate preview -> dim white (the .cw pulse loop animates from here)
     ld (FlashCol),a
     ld a,(TableN)
