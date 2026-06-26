@@ -1219,3 +1219,15 @@ Qaop snapshot (`qaop/bin/scopa.sna`); refreshed the gameplay GIF to a current-bu
 montage (built from the TESTMODE=61 demo build, then restored the normal build + reconfirmed root sna
 == shipped sna). tap 35.6 KB / tzx 35.9 KB / sna 49179 B; all verified live byte-for-byte vs local.
 CRT-signed-off by Tony across the rounds. Techniques -> animation note + tape-loader note + hw-laws.
+
+**Follow-up (2026-06-26): crowded-capture removal ORDER.** Tony's CRT: on a crowded-table capture the
+played card vanished LAST -- after the captured table cards were removed AND the survivors had re-zipped
+(backwards: it should leave with the cards it captured, then the survivors close the gaps). Reordered all
+3 crowded paths (OppTurn top / PlayerTurn + DemoPlayerTurn hand) so the tear-free played-card removal
+runs BEFORE ResolvePlay: flash -> the played card + the captured table cards vanish together ->
+ResolvePlay re-zips the survivors. KEPT the tear-free attr+bitmap restore (Tony: "don't regress that") --
+HALT + direct EraseCardRegion, never a per-cell PaintAll delta (which 'blinds' at the top). OppTurn's
+shadow already held the gap (the reveal + flash only touched the LIVE screen); the two hand paths
+RenderShadow AFTER setting the slot 0xFF so the shadow has the gap there. Verified clean build + 36s demo
+(opp-top + player-hand crowded captures) no hang, board coherent, no gold. SHIPPED + redeployed both
+domains.

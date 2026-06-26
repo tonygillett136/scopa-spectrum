@@ -139,7 +139,9 @@ restores `iy=0x5C3A` on exit, else the next ROM ISR corrupts. A full-screen blit
 `Blit` just does `halt` first so a wholesale redraw's seam is STABLE not a shimmer. The
 genuinely tear-free path is per-CARD: one 6×8 region (~430 B, ~10 kT) written top-to-bottom
 after HALT finishes ahead of the raster (14.3 kT head start; we write ~1250 T/cell-row vs
-the beam's 1792). Cursor/capture FLASHES are hardware (attr bit 7 = ULA flash) — never tear.
+the beam's 1792). Cursor/capture FLASHES are now SOFTWARE — a HALT-paced white 0x78↔0x38 pulse
+(PulseCursor / FlashCaptureWave), which replaced the old hardware FLASH bit (0xF8); tear-free by
+the same per-card rule, and the crowded-capture played-card removal reuses EraseCardRegion.
 
 **SlideIn (tear-free, save-under).** `RenderShadow` ONCE = static board with the played
 card removed; then per step: `halt` → `EraseCardRegion(prevcell)` (restore the 6×8 footprint
@@ -339,20 +341,19 @@ polled then) — can't auto-drive a full round. CRT is ground truth.
 
 ## 13. Open / next
 
-- **PENDING IDEAS (discussed, prototyped, not yet built):**
-  - **Software card-flash** (replace the hardware FLASH bit 0xF8 used by HighlightCursor /
-    FlashCaptured / FlashTableCard / FlashCardRegion). Hardware FLASH is fine for the SUSTAINED
-    cursor highlight but weak for the one-shot capture flash (global 320ms phase, short hold ->
-    unpredictable, the R43 class). Software gives controlled phase/rate/colour + jingle-sync.
-    Prototyped styles in tools/flash_proto.py -> flash_proto/*.gif (gold_glow / gold_frame /
-    sweep / regal / invert_blink / white_frame / cyan_glow / bright_pulse). Leaning gold theme:
-    gold_frame (halo) for selection, gold_glow or a single gold sweep for capture. CHOOSE A STYLE
-    then implement (drive a PulseAttr from the existing HALT-synced wait/animation loops).
-  - **Table->scores transition: wipe to CYAN, not black** (Tony's idea, "more natural"). For that
-    one transition, instead of WipeBlackSync, set every cell to solid felt cyan (ink==paper==cyan
-    = attr 0x2D) so the table "empties" to the bare felt, draw the scores invisibly under it, then
-    RevealAttrsSync. A WipeFeltSync variant (0x2D) used only in ShowResults' entry. Implement after
-    the flash style is agreed.
+- **DONE — Software card-flash (SHIPPED 2026-06-25/26).** The hardware FLASH bit (0xF8) is gone;
+  cursor + capture are now a HALT-paced white 0x78↔0x38 pulse (PulseCursor / FlashCaptureWave),
+  after a long CRT iteration (gold → diagonal "/" glint → final white pulse, ~40% faster, 4 cycles
+  ending white). The crowded-capture played card is folded into the wave (WaveTopCol/WaveTopHi) and
+  removed tear-free (EraseCardRegion) BEFORE the re-zip, so it vanishes with the cards it captured.
+  Loading screen reveal also v-synced (shadow decode + beam-locked attr flip). Full saga in DEVLOG.md.
+  (flash_proto.py / flash_wave.py prototypes kept in tools/.)
+
+- **PENDING IDEAS (discussed, not yet built):**
+  - **Table->scores transition: wipe to CYAN, not black** (Tony's idea, "more natural"; now unblocked
+    — the flash style is settled). For that one transition, instead of WipeBlackSync, set every cell to
+    solid felt cyan (ink==paper==cyan = attr 0x2D) so the table "empties" to the bare felt, draw the
+    scores invisibly under it, then RevealAttrsSync. A WipeFeltSync variant (0x2D) in ShowResults' entry.
 
 - **CURRENT (2026-06-24, all LIVE both domains):** feature-complete + heavily CRT-polished. This
   session: in-browser **Qaop/JS emulator** live (keyboard verified); far-left demo card-flash bug
