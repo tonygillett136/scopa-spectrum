@@ -134,6 +134,13 @@ cleaner, more widely-used **consecutive-run** reading (A,2,3,4,5,8 → **5**, no
 adopt the rest of that variant's package (no play-to-21, no doubled Settebello/Re-bello "in-sequence"
 point, no "capture all ten coins = instant win").
 
+**Timing — unlike a Scopa.** Napola (and Palle del cane, §9) are *pile-composition* bonuses: scored on
+which cards you end up holding, **regardless of when you captured them** — including a card handed over
+by the end-of-round sweep of the last table cards to the last capturer (§5). So unlike a Scopa — an *act*
+that never counts on the final card (§4) — a Napola/Palle completed on the very last hand, even by that
+final sweep, counts in full and its banner fires (`ShowNapolaIfDone` / `ShowPalleIfDone`, called both at
+capture-time and after `SweepToLast`).
+
 ---
 
 ## 9. Palle del cane (all four sevens)

@@ -1267,3 +1267,20 @@ hardware-FLASH bit across the table band before the sweep, but the software flas
 the cards are already solid white (0x78) -> it was a per-frame value-preserving no-op. Verified clean
 build, ace sweep still clears (TM50 -> table band 100% felt), no hang. tap 35.6KB. CRT-signed off by
 Tony; SHIPPED + redeployed both domains.
+
+**Follow-up (2026-06-27): napola/PALLE banners on a last-hand SWEEP completion + scopa last-card rule
+confirmed.** Tony asked whether NEAPOLITAN fires if the napola is achieved on the very last hand, and
+whether scopa has a last-card caveat. Checked authoritative sources (Pagat + Wikipedia): SCOPA (the
+sweep) NEVER counts on the final card of a deal -- and the code already does this correctly (ShowScopa +
+the scope point are both gated behind IsLastPlay). But NAPOLA and PALLE DEL CANE are PILE-COMPOSITION
+bonuses (which cards you end up with), not timing/act bonuses, so they count regardless of WHEN the cards
+are captured -- INCLUDING the leftover cards swept to the last capturer at round end (SweepToLast). Their
+banners, though, only fired from ResolvePlay's .done (a capture-completion): a trio / four-7s completed by
+the final sweep scored the points (ScoreRound tallies the final pile) but showed NO banner. Fix:
+extracted the napola check into ShowNapolaIfDone (mirroring ShowPalleIfDone) and call both after
+SweepToLast in the round-end path (.end). Now a napola/PALLE completed by the final sweep celebrates too,
+consistent with the scoring. KEY DISTINCTION: scopa = an ACT (clearing the table) -> last-card exception;
+napola/palle/settebello/primiera/carte/denari = PILE COMPOSITION -> no timing exception. Verified: 80s
+demo runs the .end re-check at every round-end, no crash, coherent board. Removed two never-reachable
+napola test blocks (TM-number collisions; the standalone harness can't render ShowNeapolitan, which needs
+full game context -- the demo is the real test). tap 35.6KB. SHIPPED + redeployed both domains.
