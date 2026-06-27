@@ -2025,7 +2025,7 @@ PlayerTurn:
     or a
     jr nz,.drain
 .wait:
-    call PulseCursor             ; HALT-paced software cursor glow (white<->gold) while choosing
+    call PulseCursor             ; HALT-paced software cursor glow (white<->dim-white) while choosing
     call ReadKeys
     or a
     jr z,.wait

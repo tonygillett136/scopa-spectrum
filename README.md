@@ -114,12 +114,12 @@ deck.
 | Path | What |
 |------|------|
 | `scopa.asm` | The whole game (Z80, sjasmplus) |
-| `deck.bin` | 40 cards + 1 back, 384 bitmap bytes each, INCBIN @0xC000 |
-| `title.rle` / `title2.rle` / `loading.scr` | Two rotating title screens + the loading screen |
-| `*_banner.bin` | SCOPA! / NEAPOLITAN / tricolore banners |
+| `deck.bin` | 40 cards + 1 back, 384 bitmap bytes each (uncompressed source; built into `deck.zx0`, ZX0-compressed, INCBIN @0xC000 for decode-on-draw) |
+| `title.zx0` / `title2.zx0` / `loading.zx0` | Two rotating title screens + the loading screen (ZX0-compressed) |
+| `*_banner.zx0` | SCOPA! / NEAPOLITAN / PALLE DEL CANE banners + the scores-screen flag (ZX0) |
 | `build_tap.py` / `build_tzx.py` | Build `scopa.tap` (silent multi-part loader) and wrap it as `scopa.tzx` (+ archive metadata) |
 | `tools/` | Art pipeline (`convert_deck.py`, `make_screens.py`, `mono_outline.py`) + `ai_tune.py` (host-side AI weight tuner) |
-| `site/` | The play-in-browser site (JSSpeccy embed + downloads) |
+| `site/` | The play-in-browser site (Qaop/JS embed + downloads) |
 | `RULES.md` | The rules & scoring system **as implemented** (categories, Primiera/Napola values, variant choices) |
 | `DEVELOPMENT.md` | Architecture / memory map / build / gotchas reference |
 | `DEVLOG.md` | Chronological build log |

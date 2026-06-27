@@ -82,8 +82,8 @@ Spec source (DO NOT ship from here — reference only): `/Volumes/SSD1/code/scop
                0x4000 at boot), THEN this region is reused as the SHADOW BUFFER (bitmap 0x6000,
                attrs 0x7800) — render here, then delta-blit to 0x4000. (The tape's loading.zx0
                also decodes through here at load time.)
-0x8000-~0xB6xx code (grows up) — ceiling is the state block @0xB700
-0xB700-~0xB92F state vars (ORG 0xB700; ~0x230B incl. the pre-allocated minimax node frames)
+0x8000-~0xB9DF code (grows up) — ceiling is the state block @0xBA00
+0xBA00-~0xBC50 state vars (ORG 0xBA00; ~0x250B incl. the pre-allocated minimax node frames)
 0xBFF0         stack (SP set at Start)
 0xC000-~0xE085 deck.zx0 (INCBIN, ZX0-compressed deck, 8408 B) + deck_index.bin (per-card stream
                offsets) — random-access decode-on-draw source
@@ -100,10 +100,10 @@ decompressing into a free slot on a MISS (round-robin evict). Because a board's 
 cache, per-frame animation re-renders (RenderShadow/DrawZipCards/slides) are HITS → cycle-≈ the old
 id*384 multiply → tear-free + original speed BY CONSTRUCTION; only a genuinely new on-screen card costs
 a ~30k-T decode. The 4 tear-critical direct draws pre-warm off-beam before the HALT. State ORG was slid
-0xB000→0xB700 over the project for code room (Esperto minimax, deal cascade, RemoveCascade, the
+0xB000→0xBA00 over the project for code room (Esperto minimax, deal cascade, RemoveCascade, the
 steady-border patch).
 
-Key state vars (offsets drift as vars are added — search the `ORG 0xB700` block):
+Key state vars (offsets drift as vars are added — search the `ORG 0xBA00` block):
 Deck[40], Player[3], Opp[3], Table[16], TableN, DeckPos, Seed[2], PPile[40]/PPileN,
 OPile[40]/OPileN, PScopa/OScopa, Who, FCval, CapSel[16], Played, Cursor, LastCap, Keys,
 PMatch/OMatch, PRound/ORound, CatWin[5], Options[32]/OptionN, AI eval scratch (ScoreW,
@@ -163,8 +163,10 @@ a crowded row. (>=10 cards still overflow the single 32-col row — fundamental 
 bytes with the next-row-down idiom; sets the 6×8 attr block to 0x78 (white card). Layout:
 opp backs row 0, table row 8 (step from `TableStep` = 5/4/3 by TableN), hand row 16.
 
-**Cursor**: HighlightCursor flashes the selected hand card with 0xF8 — only when `HumanTurn=1`
-(set in PlayerTurn, cleared in OppTurn / on play), and not on an empty slot.
+**Cursor**: a SOFTWARE flash — HighlightCursor sets the selected hand card to dim-white 0x38, and
+PulseCursor pulses it bright↔dim white (0x78↔0x38, HALT-synced) — only when `HumanTurn=1` (set in
+PlayerTurn, cleared in OppTurn / on play), and not on an empty slot. (The old hardware FLASH bit 0xF8
+was replaced in the software-flash rework.)
 
 **Capture flash**: FlashTableCard flashes only a card's VISIBLE width (= step for an
 overlapped card, 6 for the last/played) so it doesn't bleed onto the card drawn on top.
@@ -187,7 +189,7 @@ ScreenDown) for the NEAPOLITAN banner. FillAttrRow colours a whole char-row.
 ## 6. Game flow
 
 Start → border black, seed PRNG (R+FRAMES), hold loading screen ≥3 s, ShowTitle
-(DecompressScr expands title.rle@0x6000 → 0x4000, wait SPACE), SelectDifficulty
+(DecompressScr expands title.zx0@0x6000 → 0x4000, wait SPACE), SelectDifficulty
 (keys 1/2/3) → RunMatch. Match end → ShowWinYou/ShowWinOpp (big title + FINAL SCORE +
 "PRESS SPACE TO PLAY AGAIN"; player win = WaitWinner tricolore border shimmer) → loop.
 RunMatch: NewMatch (border cyan, Leader=0) → loop: NewRound (shuffle+deal+mark Seen) →
