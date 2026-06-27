@@ -687,42 +687,6 @@ Start:
     ; jump straight into the attract demo (CPU vs CPU) -- for capturing a gameplay GIF.
     jp EnterDemo
     ENDIF
-    IF TESTMODE == 59
-    ; napola-at-achievement: pile already holds ace+2 of coins; capture the 3 of coins -> the
-    ; trio completes -> ShowNeapolitan must fire mid-game (overlay + 2 sweeps).
-    xor a
-    ld (NapShown),a
-    ld (OPileN),a
-    ld (Cursor),a
-    ld (HumanTurn),a
-    ld (DropPreShift),a
-    ld (RevealInPlace),a
-    ld hl,PPile
-    ld (hl),0                    ; ace of coins (id 0) already captured
-    inc hl
-    ld (hl),1                    ; 2 of coins (id 1) already captured
-    ld a,2
-    ld (PPileN),a
-    ld a,2
-    ld (Table),a                 ; table = 3 of coins (id 2, value 3)
-    ld a,35
-    ld (Table+1),a               ; + 6 of bastoni (so the capture does NOT clear the table -> no scopa)
-    ld a,2
-    ld (TableN),a
-    ld a,12                      ; hand = 3 of coppe (id 12, value 3) -> captures only the 3 of coins
-    ld (Player),a
-    ld a,0xFF
-    ld (Player+1),a
-    ld (Player+2),a
-    ld a,20
-    ld (DeckPos),a
-    call PaintAll
-    ld a,12
-    ld c,0
-    call ResolvePlay             ; -> trio complete -> jp ShowNeapolitan
-.h59:
-    jr .h59
-    ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
     ; never overlap a table card). Two 7s + a spare on the table; the played 7 sits in hand.
@@ -2042,7 +2006,9 @@ PlayRound:
     call DealRevealHands         ; cascade the 6 new hand cards in (tear-free), table stays
     jr .l
 .end:
-    call SweepToLast
+    call SweepToLast             ; leftover table cards -> the last capturer (sets Who = LastCap)
+    call ShowPalleIfDone         ; the final sweep can itself complete palle / napola for the last
+    call ShowNapolaIfDone        ; capturer (e.g. the trio's 3-of-coins was swept, not captured)
     ret
 
 ; =================== player turn ===================
@@ -3793,32 +3759,8 @@ ResolvePlay:
                                  ; (no crowded-table flash: the slide already shows where the
                                  ;  card lands; the hardware-FLASH blink read as a glitch)
 .done:
-    call ShowPalleIfDone         ; PALLE DEL CANE banner if a side just completed all four 7s (le
-                                 ; palle del cane) -- mirrors the napola check below; fires once/round
-    ; --- napola achieved? celebrate the INSTANT the capturing side completes the ace+2+3 of coins
-    ; (ids 0,1,2), rather than at round end. Fires once per round (NapShown). Captured cards are
-    ; never lost, so this is monotonic; a drop can't complete it, so reaching here on a drop is a
-    ; harmless re-check. The points are still tallied at round end on the scores screen. ---
-    ld a,(NapShown)
-    or a
-    ret nz                       ; already celebrated this round
-    ld a,(Who)
-    ld (NapWhich),a              ; check the side that just captured
-    ld c,0
-    call NapHas
-    or a
-    ret z                        ; no ace of coins held -> trio not complete
-    ld c,1
-    call NapHas
-    or a
-    ret z
-    ld c,2
-    call NapHas
-    or a
-    ret z                        ; missing one of ace/2/3 of coins
-    ld a,1
-    ld (NapShown),a
-    jp ShowNeapolitan            ; tail-call: the celebration, then ret to ResolvePlay's caller
+    call ShowPalleIfDone         ; PALLE DEL CANE banner if a side just completed all four 7s
+    jp ShowNapolaIfDone          ; NEAPOLITAN banner if that capture just completed the ace+2+3 of coins
 .droppre:                        ; shift-before-zip drop: room made + card already slid to slot
     ld hl,Table                  ; oldN (= TableN-1). Just drop it into the placeholder.
     ld a,(TableN)
@@ -5321,6 +5263,33 @@ ShowPalleIfDone:
     ld a,1
     ld (PalleShown),a
     jp ShowPalle                 ; tail-call: banner, then ret to .done
+
+; ShowNapolaIfDone: fire the NEAPOLITAN banner the instant the side whose pile just grew (Who) holds
+; the napola trio -- ace+2+3 of coins (ids 0,1,2). Once per round (NapShown); captured cards are never
+; lost so it's monotonic. Called from ResolvePlay's .done (a capture-completion) AND after SweepToLast
+; (the end-of-round leftover sweep can itself complete the trio for the last capturer -> celebrate that
+; too, not only capture-completions). The points are tallied independently at round end (scores screen).
+ShowNapolaIfDone:
+    ld a,(NapShown)
+    or a
+    ret nz                       ; already celebrated this round
+    ld a,(Who)
+    ld (NapWhich),a              ; check the side whose pile just grew
+    ld c,0
+    call NapHas
+    or a
+    ret z                        ; no ace of coins held -> trio not complete
+    ld c,1
+    call NapHas
+    or a
+    ret z
+    ld c,2
+    call NapHas
+    or a
+    ret z                        ; missing one of ace/2/3 of coins
+    ld a,1
+    ld (NapShown),a
+    jp ShowNeapolitan            ; tail-call: the celebration, then ret to the caller
 
 ; ---- 2x-size text ----
 DoubleNib: defb 0x00,0x03,0x0C,0x0F,0x30,0x33,0x3C,0x3F,0xC0,0xC3,0xCC,0xCF,0xF0,0xF3,0xFC,0xFF
