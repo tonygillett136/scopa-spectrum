@@ -690,9 +690,10 @@ Start:
     jp EnterDemo
     ENDIF
     IF TESTMODE == 65
-    ; napola-eval unit test (Tony's case): the AI holds A+2 of coins; the table has the 3-of-coins
-    ; AND a 7, both capturable. With napola awareness it must take the 3-of-coins (completes the +3
-    ; napola), NOT the 7. PASS -> border GREEN (BestSlot=0, the napola coin); FAIL -> border RED.
+    ; napola-eval unit test (Tony's EXACT case): the AI ALREADY holds A+2 of coins; the table has the
+    ; 3-of-coins AND the SETTEBELLO (7-of-coins) -- both capturable. Completing the +3 napola must beat
+    ; taking the +35 settebello -> the AI takes the 3-of-coins (BestSlot 0; border green = pass). Only
+    ; the COMPLETING capture scores the napola bonus -- a lone napola card with the rest unheld gets none.
     ld hl,0xBA00                 ; zero the state region first (TM runs before NewGame inits it)
     ld de,0xBA01
     ld bc,0x04FF
@@ -710,9 +711,9 @@ Start:
     ld (hl),1
     ld a,2
     ld (OPileN),a
-    ld a,2                       ; table = [3-coins(2), 7-bastoni(36)]
+    ld a,2                       ; table = [3-coins(2), settebello = 7-of-coins(6)]
     ld (Table),a
-    ld a,36
+    ld a,6
     ld (Table+1),a
     ld a,2
     ld (TableN),a
