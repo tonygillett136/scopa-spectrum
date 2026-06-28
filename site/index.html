@@ -53,11 +53,19 @@
 
     <div class="shots-grid gif-grid">
       <figure>
-        <img src="img/gameplay.gif" width="256" height="192" alt="Animated gameplay: Neapolitan cards played and captured on the cyan felt" loading="lazy">
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="img/gameplay.png">
+          <source type="image/webp" srcset="img/gameplay.webp">
+          <img src="img/gameplay.gif" width="512" height="384" alt="Animated gameplay: Neapolitan cards played and captured on the cyan felt" loading="lazy">
+        </picture>
         <figcaption>A hand in play — it even plays itself in attract mode</figcaption>
       </figure>
       <figure>
-        <img src="img/shimmer.gif" width="256" height="192" alt="The VINCITORE victory screen with an animated golden sunburst shimmer" loading="lazy">
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="img/winner.png">
+          <source type="image/webp" srcset="img/shimmer.webp">
+          <img src="img/shimmer.gif" width="512" height="384" alt="The VINCITORE victory screen with an animated golden sunburst shimmer" loading="lazy">
+        </picture>
         <figcaption>VINCITORE! — win the match and the golden rays shimmer</figcaption>
       </figure>
     </div>
@@ -173,6 +181,7 @@
       against the standard Neapolitan game, the card art traced faithfully from a physical deck,
       and the AI tuned by tens of thousands of self-played games. It was developed and tested
       against real hardware on a CRT.</p>
+    <p class="story-links"><a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/ARTICLE.md">Read how it was built&nbsp;→</a> &nbsp;·&nbsp; <a href="https://github.com/tonygillett136/scopa-spectrum">Source on GitHub</a></p>
     <p class="story-sign">— Tony Gillett, 2026</p>
   </div>
 </section>
@@ -188,6 +197,11 @@
       Game © Tony Gillett 2026 · based on an original by Angelo Colucci.<br>
       100% Z80 assembly for the 48K ZX Spectrum.<br>
       Card art is derived from a physical Napoletane deck and rendered in monochrome for the Spectrum.
+    </p>
+    <p class="foot-links">
+      <a href="https://github.com/tonygillett136/scopa-spectrum">Source on GitHub</a> ·
+      <a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/ARTICLE.md">How it was built</a> ·
+      <a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/RULES.md">Rules &amp; scoring</a>
     </p>
   </div>
 </footer>
