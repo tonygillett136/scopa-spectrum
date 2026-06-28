@@ -1307,3 +1307,20 @@ Jun 22); build_tap.py reads scopa.sym for dzx0/TapeFlag, so the build must be
 `sjasmplus scopa.asm --sym=scopa.sym` -- benign until now only because dzx0 sits at a fixed ORG, but a
 moved TapeFlag would mis-poke the loader.** tap 35.7KB. SHIPPED + redeployed both domains. Lesson +
 experiment recorded in AI_ANALYSIS.md.
+
+**Follow-up (2026-06-28): website review + improvements + a copy pass.** Playwright-previewed the live
+site (desktop + mobile). The design holds up, but two issues surfaced: the "What's inside" feature cards
+were near-invisible (a 5% cream wash on the felt), and the two gameplay GIFs were 582 KB (oversized at
+1024x768 / 512x384). FIXES (origin/main=116c092): feature cards -> a solid teal gradient like the download
+cards (now readable); the GIFs -> downscaled to 512x384 LOSSLESS animated WebP via `<picture>` (gameplay
+260->10.5 KB, shimmer 322->14 KB; reduced-motion users get a static poster, WCAG 2.2.2). WebP beat video
+here BECAUSE it's pixel art -- lossless AND smaller than even an MP4 (the generic "GIF->video" advice is
+wrong for sharp few-colour frames: H.264/VP9 add chroma-bleed + ringing). Added "Read how it was built" /
+GitHub / RULES links to the story + footer. COPY PASS (origin/main=5b3498d): the page never told a
+newcomer what Scopa IS -> the "Play it now" intro now opens by teaching it (capture by value, sweep for a
+scopa, the scoring, first to 11); the dedication "In memory of a friend's lost game" -> "A recreation
+of..." (Angelo is alive and well); the lede leads with the hook + an honest AI line ("a genuinely strong
+opponent that plays fair -- it never sees your hand"); the "Authentic art" feature re-angled (48x64
+legibility + the crowns) to stop repeating the deck section; ARTICLE got a ZX0 coda; misc tightening. Both
+shipped + verified live on both domains (mobile play confirmed -- the Qaop page has an on-screen keyboard).
+Site-review notes + the GIF/WebP reasoning are the lasting lessons.
