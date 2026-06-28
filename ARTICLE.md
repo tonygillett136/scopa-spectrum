@@ -67,6 +67,8 @@ Earlier in the project we'd written a little screen-compression routine — a cl
 
 It freed about 7 KB — and there was something quietly moving about it. **Angelo's namesake routine made room for Angelo's game.**
 
+The encoder itself has since given way to ZX0 — a tighter, modern squeeze we now use for every screen and the whole card deck. But the trick it pioneered stayed, and so did the gesture.
+
 ---
 
 ## The music: from "distressed cat" to Funiculì, Funiculà
