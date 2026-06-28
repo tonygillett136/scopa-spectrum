@@ -1284,3 +1284,26 @@ napola/palle/settebello/primiera/carte/denari = PILE COMPOSITION -> no timing ex
 demo runs the .end re-check at every round-end, no crash, coherent board. Removed two never-reachable
 napola test blocks (TM-number collisions; the standalone harness can't render ShowNeapolitan, which needs
 full game context -- the demo is the real test). tap 35.6KB. SHIPPED + redeployed both domains.
+
+**Follow-up (2026-06-28): napola-aware AI eval -- modelled, proven strength-neutral, shipped for OPTICS.**
+Tony's CRT: in the demo the AI grabbed a 7 instead of the coin that would COMPLETE a 3-point napola.
+Diagnosis confirmed: EvalCapture values 7s (+12), the settebello (+35), coins (+5) but had NO napola
+term -- Napola/PalleDelCane were only ever called from ScoreRound (round-end), never the eval -- so the
+napola coin read as a generic +5 coin and lost to the +12 seven. MODELLED it first (tools/ai_napola.py,
+the ai_prime.py pile-aware pattern, faithful host-mirror): a napola-gain term (delta of the pile's
+consecutive-coin run, priced ~35/point like the settebello). RESULT over 24k matches = 0.502 -- WITHIN
+NOISE: it does NOT make the AI stronger (the napola is rare ~14% of deals, the AI already completes most,
+and grabbing the coin gives up the 7 which is also valuable -> net wash). BUT it is SAFE (no point
+cannibalisation: denari/primiera/carte unchanged -- unlike the rejected primiera-awareness which HURT)
+and it fixes the visibly-dumb play. Decision (Tony): ship for the optics -- the AI plays as smart as it
+is in the watched demo -- accepting it's polish not strength. Z80 impl: NapolaBonus in EvalCapture
+(+ BuildNapMask/NapRun/OrCoinBit) -- a coin bitmask of the AI pile built once per aiSelectPlay
+(OPile/PPile by HandPtr), then per candidate capture adds (run(pile+captured)-run(pile))*35. Verified:
+TM65 unit test = the AI takes the napola coin (BestSlot 0) in Tony's exact position; 70s demo no crash,
+coherent board. Code FITS at the original state ORG 0xBA00 (CodeEnd 0xB4CE, 1330 B free) -- an initial
+state-slide to 0xBB00 was reverted once a fresh sym showed the slide was unnecessary. **BUILD GOTCHA
+found + worked around: plain `sjasmplus scopa.asm` does NOT rewrite scopa.sym (it was stale since
+Jun 22); build_tap.py reads scopa.sym for dzx0/TapeFlag, so the build must be
+`sjasmplus scopa.asm --sym=scopa.sym` -- benign until now only because dzx0 sits at a fixed ORG, but a
+moved TapeFlag would mis-poke the loader.** tap 35.7KB. SHIPPED + redeployed both domains. Lesson +
+experiment recorded in AI_ANALYSIS.md.

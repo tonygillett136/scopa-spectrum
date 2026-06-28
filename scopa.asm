@@ -18,8 +18,8 @@ FASTSIM = 1
     ENDIF
 ; ---- state ----
 ; State block (code ceiling). Slid up to 0xBA00 to hand code room for the Esperto AI, the deal
-; cascade, RemoveCascade, the Rockwell banners, and the VINCITORE attribute-shimmer (WinShimmer).
-; State spans ~0x237 (ends ~0xBC37); stack at 0xBFF0 leaves ~950 B below it for the stack (the
+; cascade, RemoveCascade, the Rockwell banners, the VINCITORE shimmer, and the napola-aware eval.
+; State spans ~0x23A (ends ~0xBD3A); stack at 0xBFF0 leaves ~700 B below it for the stack (the
 ; minimax node frames are pre-allocated in state, not on the stack, so the stack stays shallow).
     ORG 0xBA00
 Deck:     defs 40
@@ -69,6 +69,8 @@ BestSlot:  defs 1
 BestOpt:   defs 1
 TmpTable:  defs 16
 TmpTableN: defs 1
+NapMask:   defs 2                  ; AI pile coin-bitmask (bit n = coin id n held) for the napola-aware eval
+NapBefore: defs 1                  ; napola run of NapMask (>=3 else 0), computed once per aiSelectPlay
 Leader:    defs 1
 OpenLeader: defs 1                ; who leads the FIRST deal of a match: random at boot, flips per match
 Difficulty: defs 1
@@ -686,6 +688,50 @@ Start:
     IF TESTMODE == 61
     ; jump straight into the attract demo (CPU vs CPU) -- for capturing a gameplay GIF.
     jp EnterDemo
+    ENDIF
+    IF TESTMODE == 65
+    ; napola-eval unit test (Tony's case): the AI holds A+2 of coins; the table has the 3-of-coins
+    ; AND a 7, both capturable. With napola awareness it must take the 3-of-coins (completes the +3
+    ; napola), NOT the 7. PASS -> border GREEN (BestSlot=0, the napola coin); FAIL -> border RED.
+    ld hl,0xBA00                 ; zero the state region first (TM runs before NewGame inits it)
+    ld de,0xBA01
+    ld bc,0x04FF
+    ld (hl),0
+    ldir
+    ld hl,Opp                    ; opp (the AI) hand = [3-coppe(12), 7-spade(26), empty]
+    ld (hl),12
+    inc hl
+    ld (hl),26
+    inc hl
+    ld (hl),0xFF
+    ld hl,OPile                  ; opp pile already holds A-coins(0) + 2-coins(1)
+    ld (hl),0
+    inc hl
+    ld (hl),1
+    ld a,2
+    ld (OPileN),a
+    ld a,2                       ; table = [3-coins(2), 7-bastoni(36)]
+    ld (Table),a
+    ld a,36
+    ld (Table+1),a
+    ld a,2
+    ld (TableN),a
+    ld hl,Opp
+    ld (HandPtr),hl              ; the AI is playing the opponent's hand
+    ld a,1
+    ld (Difficulty),a            ; Medium = 1-ply weighted heuristic
+    ld a,20
+    ld (DeckPos),a               ; deck not empty -> heuristic, not the endgame search
+    call aiSelectPlay
+    ld a,(BestSlot)
+    or a
+    ld a,2                       ; FAIL = red (took the 7)
+    jr nz,.t65out
+    ld a,4                       ; PASS = green (BestSlot 0 = took the napola coin)
+.t65out:
+    out (254),a
+.h65:
+    jr .h65
     ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
@@ -2503,6 +2549,21 @@ aiSelectPlay:                    ; -> A = chosen hand slot; sets AIOpt
     ld (BestOpt),a
     xor a
     ld (AISlot),a
+    ; napola awareness: build the AI pile's coin-mask ONCE (EvalCapture's gain term reads it)
+    ld hl,(HandPtr)
+    ld de,Opp
+    or a
+    sbc hl,de
+    jr z,.napopp                 ; HandPtr == Opp -> the AI is the opponent
+    ld de,PPile
+    ld a,(PPileN)
+    jr .napset
+.napopp:
+    ld de,OPile
+    ld a,(OPileN)
+.napset:
+    ld b,a
+    call BuildNapMask
 .slot:
     ld hl,(HandPtr)              ; the hand being evaluated (Opp, or Player in the demo)
     ld a,(AISlot)
@@ -3053,6 +3114,7 @@ EvalCapture:
 .cbd:
     ld a,(AICardId)
     call CardBonus
+    call NapolaBonus             ; + napola points this capture locks in / extends (Tony's optics fix)
     ld a,(Difficulty)
     cp 2
     call z,CardCount             ; HARD: card-counting bonus
@@ -3071,6 +3133,122 @@ EvalCapture:
     or a
     ret z                        ; EASY: no sweep-avoidance
     call EvalSafety
+    ret
+
+; ---- napola awareness (Tony's optics fix): value a capture by the napola points it locks in ----
+; NapMask (built once per aiSelectPlay by BuildNapMask) = the AI pile's coin bitmask; NapBefore = its
+; napola run. NapolaBonus adds (run(pile+captured) - NapBefore) * 35 to ScoreW -- napola priced per
+; point like the settebello (+35). A drop can't complete a napola, so only EvalCapture calls this.
+; Strength-neutral in the host-sim (24k matches = 0.502) but fixes the visible "grab the 7 over the
+; napola coin" play; safe -- no point-cannibalisation, unlike the rejected primiera-awareness.
+NapolaBonus:
+    ld hl,(NapMask)
+    ld a,(AICardId)             ; + the played card if it is a coin (id < 10)
+    cp 10
+    call c,OrCoinBit
+    ld a,(TableN)
+    or a
+    jr z,.nbrun
+    ld b,a                      ; B = TableN
+    ld e,0                      ; E = table index
+.nblp:
+    ld a,e
+    cp b
+    jr nc,.nbrun
+    push hl
+    ld hl,CapSel
+    ld a,e
+    call addHLA
+    ld a,(hl)
+    or a
+    jr z,.nbskip                ; this table card was not captured
+    ld hl,Table
+    ld a,e
+    call addHLA
+    ld a,(hl)                   ; the captured card id
+    pop hl
+    cp 10
+    call c,OrCoinBit            ; coin -> set its bit in the after-mask
+    jr .nbnext
+.nbskip:
+    pop hl
+.nbnext:
+    inc e
+    jr .nblp
+.nbrun:
+    call NapRun                 ; A = napola run of the after-mask (>=3 else 0)
+    ld hl,NapBefore
+    sub (hl)                    ; A = after - before = napola points this capture gains
+    ret z
+    ret c                       ; guard: never negative
+    ld b,a                      ; delta (1..7)
+    ld de,0
+.nbmul:
+    ld hl,35
+    add hl,de
+    ex de,hl                    ; DE += 35
+    djnz .nbmul                 ; DE = delta * 35
+    call AddScoreDE
+    ret
+
+; BuildNapMask: DE = pile pointer, B = pile count -> sets NapMask + NapBefore
+BuildNapMask:
+    ld hl,0
+    ld a,b
+    or a
+    jr z,.bmdone
+.bmlp:
+    ld a,(de)
+    inc de
+    cp 10
+    call c,OrCoinBit            ; coin (id < 10) -> set bit (id) in HL
+    djnz .bmlp
+.bmdone:
+    ld (NapMask),hl
+    call NapRun
+    ld (NapBefore),a
+    ret
+
+; NapRun: HL = coin bitmask -> A = consecutive coins from the ace (bit 0); >=3 else 0
+NapRun:
+    xor a
+    ld b,10
+.nrlp:
+    srl h
+    rr l                        ; old bit 0 -> carry
+    jr nc,.nrdone
+    inc a
+    djnz .nrlp
+.nrdone:
+    cp 3
+    ret nc
+    xor a
+    ret
+
+; OrCoinBit: A = coin id (0..9) -> HL |= (1 << A). Preserves BC + DE; clobbers A.
+OrCoinBit:
+    push bc
+    push de
+    ld b,a
+    ld de,1
+.oblp:
+    ld a,b
+    or a
+    jr z,.obor
+    ex de,hl
+    add hl,hl
+    ex de,hl                    ; DE <<= 1
+    dec b
+    jr .oblp
+.obor:
+    ld a,l
+    or e
+    ld l,a
+    ld a,h
+    or d
+    ld h,a                      ; HL |= DE
+    pop de
+    pop bc
     ret
 
 ; CardCount: HARD-mode late-game aggression -- once most cards have been seen,

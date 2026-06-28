@@ -82,7 +82,7 @@ Spec source (DO NOT ship from here — reference only): `/Volumes/SSD1/code/scop
                0x4000 at boot), THEN this region is reused as the SHADOW BUFFER (bitmap 0x6000,
                attrs 0x7800) — render here, then delta-blit to 0x4000. (The tape's loading.zx0
                also decodes through here at load time.)
-0x8000-~0xB9DF code (grows up) — ceiling is the state block @0xBA00
+0x8000-~0xB4CE code (grows up) — ceiling is the state block @0xBA00 (~1.3 KB free)
 0xBA00-~0xBC50 state vars (ORG 0xBA00; ~0x250B incl. the pre-allocated minimax node frames)
 0xBFF0         stack (SP set at Start)
 0xC000-~0xE085 deck.zx0 (INCBIN, ZX0-compressed deck, 8408 B) + deck_index.bin (per-card stream
@@ -311,10 +311,15 @@ Toolchain: `mastery/tools/sjasmplus`; ZEsarUX 13.0 + `mastery/tools/zx_shot.py` 
 # regenerate art (only if references/params change):
 python tools/convert_deck.py      # -> deck.bin   (RUN FROM scopa/)
 python tools/make_screens.py      # -> title.scr, loading.scr
-# build:
-sjasmplus scopa.asm               # -> scopa.sna (test) + scopa_code.bin (tape)
-python build_tap.py               # -> scopa.tap
+# build (the --sym is REQUIRED -- see the note below):
+sjasmplus scopa.asm --sym=scopa.sym   # -> scopa.sna + scopa_code.bin + a FRESH scopa.sym
+python build_tap.py                    # -> scopa.tap  (reads scopa.sym for dzx0 / TapeFlag)
+python build_tzx.py                    # -> scopa.tzx
 ```
+⚠️ **Always pass `--sym=scopa.sym`.** Plain `sjasmplus scopa.asm` does NOT rewrite the `.sym`, so
+build_tap.py would silently read a STALE `scopa.sym` (it pulls `dzx0_standard` + `TapeFlag` from it).
+Harmless only while those addresses sit still -- any state-layout change moves `TapeFlag` and the loader's
+poke lands at the wrong address.
 `TESTMODE` builds run a scripted scenario instead of the game, for headless verify via
 read_mem / screenshot. NOTE the define syntax is `-DTESTMODE=N` (the `--define=…` long form
 errors "missing define value"):

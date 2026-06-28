@@ -114,3 +114,33 @@ shipped, byte-tight build (~50 bytes free). The play that prompted the doubt was
 The remaining theoretical lever is mid-game determinized/sampling search (ISMCTS-style), which
 is heavy, non-exact, and unrealistic for a real-time 48K Spectrum — and the sim suggests only
 modest returns. Not worth disturbing a verified build.
+
+---
+
+## 7. Addendum — napola awareness (2026-06-28): the one concrete combo, shipped for OPTICS
+
+A later CRT observation (Tony): in the demo the AI grabbed a 7 instead of the coin that would *complete*
+a 3-point napola. Unlike every §4 experiment — all *emergent* quantities (primiera, suit-completion) a
+1-ply eval structurally cannot steer — the napola is **concrete and attributable**: you hold it iff your
+pile has A+2+3 of coins, uncontestable, exactly like the settebello the eval already values (+35). So it
+was the one untested lever that *could* work. Confirmed the gap: `EvalCapture` valued 7s/settebello/coins
+but never called `Napola` (only `ScoreRound` did). Modelled in `tools/ai_napola.py` (ai_prime.py's
+pile-aware pattern, faithful host-mirror): a napola-gain term = (run(pile+captured) − run(pile)) × ~35.
+
+| Experiment | Result | Verdict |
+|---|---|---|
+| Napola-aware capture bonus (any weight 8–90) | 0.502 (24k matches) | **within noise — not stronger** |
+
+Neutral, not negative (unlike primiera-awareness): the napola is rare (~14% of deals), the AI already
+completes most completable ones (coins are valued), the "7 vs napola-coin" conflict is rare, and taking
+the coin gives up the 7 (also valuable) → net wash. Crucially it is **safe** — denari 39.4/39.2, primiera
+47.9/47.9, carte 46.7/46.2, no cannibalisation (the failure mode that sank primiera-awareness). Palle-
+awareness: also neutral.
+
+**Decision (for this one term): SHIPPED — for optics, not strength.** It is the only change that fixes a
+*visibly* wrong play (which matters in the watched attract demo and for player trust), is provably safe,
+and is cheap. It does **not** contradict §6 — the heuristic remains at its *strength* ceiling; napola is
+shipped as polish, eyes open. Z80: `NapolaBonus` in `EvalCapture` (+ `BuildNapMask`/`NapRun`/`OrCoinBit`);
+verified by the `TM65` unit test (takes the napola coin in Tony's exact position) and a crash-free demo.
+No other missed concrete combo exists — settebello is already valued; carte/denari/primiera are emergent;
+napola/palle **denial** needs the opponent's hidden pile, which only the deck-empty Esperto minimax sees.
