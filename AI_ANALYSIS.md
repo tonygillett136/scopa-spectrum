@@ -144,3 +144,47 @@ shipped as polish, eyes open. Z80: `NapolaBonus` in `EvalCapture` (+ `BuildNapMa
 verified by the `TM65` unit test (takes the napola coin in Tony's exact position) and a crash-free demo.
 No other missed concrete combo exists — settebello is already valued; carte/denari/primiera are emergent;
 napola/palle **denial** needs the opponent's hidden pile, which only the deck-empty Esperto minimax sees.
+
+---
+
+## 8. Addendum — the self-play watchdog (2026-06-29): a systematic audit, Z80-confirmed
+
+Tony asked for a harness that plays the real logic against itself for many games and flags "odd" plays.
+`tools/ai_watch.py` is a faithful host port of the SHIPPED Esperto mid-game evaluator (aiSelectPlay /
+EvalCapture / EvalSafety / EvalDrop / CardBonus / NapolaBonus / ThreatLive — weights read straight out of
+scopa.asm; card-counting `Seen` = table + own hand + every played card) playing Esperto-v-Esperto and
+logging every mid-game decision with all alternatives. The endgame (deck empty) is the exact minimax —
+provably optimal — so oddities can only live in the mid-game heuristic; only deck-not-empty decisions are
+audited.
+
+High-signal detector = **dominance**: flag a move only if another legal move is ≥ on *every* fundamental
+(cards, coins, settebello, primiera-gain, scopa, napola points) and no worse on the two bad axes (hands the
+opponent a scopa; leaves the settebello), strictly better somewhere — a dominated move can't be justified
+by any Scopa principle. (Two iterations to get right: the vector must bank the *played* card on a capture
+and use true primiera-gain, else it false-flags playing the settebello to capture, or capturing two aces
+over one coin.)
+
+**Confirmed on the real Z80.** `tools/ai_zx_check.py` replays each flagged board through the shipped ROM
+via a board-injection probe (`TESTMODE 70`: poke Table/hand/OPile/Seen, run the real aiSelectPlay, read
+back BestSlot + the captured mask). **14/14 flagged boards → the Z80 makes the identical decision**, so the
+mirror is a faithful replica and the findings are the actual shipped logic. (Found + fixed a real harness
+bug en route: `zx_shot.write_mem` used ZRCP `write-memory` with a concatenated hex string, which mangles
+multi-byte writes — must be `write-memory-raw`.)
+
+**Findings (5000 Esperto-v-Esperto matches, asso off):** ~1.5 dominated mid-game plays per match. Which
+fundamental the better move wins on:
+
+| Category | Share | Reading |
+|---|---|---|
+| primiera (incl. +coins/+cards) | ~75% | the known emergent-primiera blindness (§4/§6) |
+| napola points | ~16% | a flat rank bonus occasionally out-weighs a napola gain |
+| leaves opp a scopa (vs equal safe move) | ~4% | accepted a small sweep-risk over an equal safe alternative |
+| pure carte / denari trades | ~5% | marginal |
+
+**No gross blunders** — zero dropped settebelli, zero passed guaranteed points; the 18 `LEFT_SETTEBELLO`
+and the rare `PASSED_SCOPA` are the napola fix correctly completing a 3–5 point napola over a 1-point card.
+
+**Verdict:** the watchdog independently *rediscovered* §4/§6 — the only systematic suboptimality is the
+marginal primiera/tempo blindness inherent to a 1-ply evaluator, and §4 already proved primiera-awareness
+HURTS (primiera is comparative/emergent over the whole deal). No new bug; the AI is sound; left as-is.
+Reusable: `python tools/ai_watch.py [matches]`, then `python tools/ai_zx_check.py` to Z80-confirm a flag.

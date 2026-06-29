@@ -1324,3 +1324,33 @@ opponent that plays fair -- it never sees your hand"); the "Authentic art" featu
 legibility + the crowns) to stop repeating the deck section; ARTICLE got a ZX0 coda; misc tightening. Both
 shipped + verified live on both domains (mobile play confirmed -- the Qaop page has an on-screen keyboard).
 Site-review notes + the GIF/WebP reasoning are the lasting lessons.
+
+**Follow-up (2026-06-29): BILINGUAL SITE (English + Italian).** English at `/`, Italian at `/it/`, a header
+EN.IT switcher, generated FROM ONE SOURCE so the two never drift: `site_src/template.html` (structure +
+`{{key}}` placeholders + hreflang/canonical/og:locale + absolute asset paths) + `tools/build_site.py`
+(EN exact + idiomatic IT strings; validates no `{{` left). To edit copy now: edit template/strings, run
+`python3 tools/build_site.py`, deploy. Italian is ADAPTED not literal (dropped the 'broom'/'Re (king)'
+glosses that exist only for English readers). The game ROM is already Italian so no Z80 change. Both
+previewed via Playwright + verified live on both domains.
+
+**Follow-up (2026-06-29): SELF-PLAY AI WATCHDOG (Tony's request) -- systematic odd-play audit, Z80-confirmed.**
+`tools/ai_watch.py` plays a FAITHFUL host port of the shipped Esperto mid-game evaluator against itself
+(weights read straight out of scopa.asm: card_count x3, coin +5, settebello +35, 7 +12, 6 +8, ace +6,
+sweep +50, napola run-delta x35, drops, safety with the ThreatLive card-count gate, Seen = table+own-hand+
+played). It logs every mid-game decision (the endgame minimax is provably optimal -> oddities only live in
+the heuristic) and flags by DOMINANCE: a move is odd iff another legal move is >= on every fundamental
+(cards, coins, settebello, primiera-gain, scopa, napola) and no worse on the bad axes (gives opp a scopa /
+leaves the settebello). CONFIRMED ON THE REAL Z80: `tools/ai_zx_check.py` + a board-injection probe
+(`TESTMODE 70`: poke Table/hand/OPile/Seen, run the real aiSelectPlay, read back BestSlot + captured mask)
+-> 14/14 flagged boards reproduce identically -> the mirror is faithful, the findings are the shipped logic.
+Found + fixed a real harness bug en route: zx_shot.write_mem used ZRCP `write-memory` + concatenated hex
+(mangles multi-byte writes) -> must be `write-memory-raw`; also the first injected board after smartload
+reads stale state -> the driver warms up with a throwaway run. FINDINGS (5000 matches): ~1.5 dominated
+mid-game plays/match -- ~75% primiera (the eval's flat per-rank bonus can't see a card's MARGINAL primiera
+value), ~16% napola subtleties, ~4% accepting a small sweep-risk over an equal safe move, ~5% carte/denari
+trades. NO gross blunders (zero dropped settebelli, zero passed guaranteed points; the rare LEFT_SETTEBELLO/
+PASSED_SCOPA are the napola fix completing a 3-5pt napola). The watchdog independently REDISCOVERED
+AI_ANALYSIS s4/s6 -- the only systematic suboptimality is the marginal primiera/tempo blindness inherent to
+a 1-ply evaluator, and primiera-awareness was already proven to HURT. No new bug; AI sound; left as-is.
+Write-up = AI_ANALYSIS.md s8. TESTMODE 70 is gated (not in the shipped build -- normal scopa.tap byte-
+identical, no redeploy).

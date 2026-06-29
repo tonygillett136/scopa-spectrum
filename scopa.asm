@@ -734,6 +734,54 @@ Start:
 .h65:
     jr .h65
     ENDIF
+    IF TESTMODE == 70
+    ; ---- AI board-injection probe (host-driven via tools/ai_zx_check.py) ----
+    ; Python pokes a full mid-game state (Table/TableN, Opp hand, OPile/OPileN, Seen, Difficulty=3,
+    ; DeckPos<40, AceRule) then writes 0x7E00=1 to request a decision. We run the REAL aiSelectPlay
+    ; and return 0x7E01=BestSlot, 0x7E02=BestOpt, 0x7E03=TableN, 0x7E04..=CapSel[] (captured-cell mask),
+    ; then clear 0x7E00. Lets the host replay any flagged board through the shipped AI.
+    ld hl,Opp
+    ld (HandPtr),hl
+.w70:
+    ld a,(0x7E00)
+    or a
+    jr z,.w70
+    call aiSelectPlay
+    ld (0x7E01),a
+    ld c,a
+    ld a,(BestOpt)
+    ld (0x7E02),a
+    ld a,(TableN)
+    ld (0x7E03),a
+    ld a,(BestOpt)
+    cp 0xFF
+    jr z,.d70
+    ld hl,Opp
+    ld a,c
+    call addHLA
+    ld a,(hl)
+    ld (AICardId),a
+    call valueOf
+    call findAllCaptures
+    ld a,(BestOpt)
+    call MaskToCapSel
+    ld a,(TableN)
+    or a
+    jr z,.d70
+    ld b,a
+    ld hl,CapSel
+    ld de,0x7E04
+.c70:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    djnz .c70
+.d70:
+    xor a
+    ld (0x7E00),a
+    jr .w70
+    ENDIF
     IF TESTMODE == 15
     ; capture-choice render: the played card stays IN THE HAND while you choose (so it can
     ; never overlap a table card). Two 7s + a spare on the table; the played 7 sits in hand.
