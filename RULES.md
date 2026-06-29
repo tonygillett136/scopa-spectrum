@@ -153,8 +153,11 @@ A regional bonus: capturing **all four 7s** in a round scores **+1** ("*le palle
 ## 10. Winning the match
 
 Round points accumulate across rounds into the match score. After a round, if either player has reached
-**11**, the higher total wins the match. If both are at/over 11 and **tied**, another round is played to
-break it. (`PMatch`/`OMatch`, compared against 11.)
+**11**, the higher total wins the match. **If both are at/over 11 and tied, the match does _not_ end** —
+another round is played (the deal alternating as usual) and play continues until one side finishes a round
+strictly ahead with ≥11. So a tie can never be the final result; there is no "draw" outcome.
+(`PMatch`/`OMatch`, compared against 11; `RunMatch` `.maybe`: `jr z,.round` loops back on an exact tie,
+otherwise the higher score takes `ShowWinYou`/`ShowWinOpp`.)
 
 ---
 
