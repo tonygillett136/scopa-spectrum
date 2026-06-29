@@ -1354,3 +1354,16 @@ AI_ANALYSIS s4/s6 -- the only systematic suboptimality is the marginal primiera/
 a 1-ply evaluator, and primiera-awareness was already proven to HURT. No new bug; AI sound; left as-is.
 Write-up = AI_ANALYSIS.md s8. TESTMODE 70 is gated (not in the shipped build -- normal scopa.tap byte-
 identical, no redeploy).
+
+**Follow-up (2026-06-29): opening-deal fairness check (Tony: "I don't recall ever seeing two same-value
+cards on the opening table -- bias?").** Read the deal code: `Shuffle` is a correct Fisher-Yates (swap
+Deck[b] with a random j in [0,b], b=39->1); `DealRound` takes the first 10 shuffled cards (3+3 hands, 4
+table); there is NO re-deal rule and nothing that filters same-value pairs. The RNG `Rnd` does no PRNG
+arithmetic -- it returns consecutive bytes of the lower-8KB Spectrum ROM (addr = Seed & 0x1FFF) and bumps
+the pointer; the seed's low byte is set from the R refresh register at boot (cheap 8-bit thrift). MEASURED
+the real algorithm (real ROM bytes + the real Fisher-Yates + the real deal order) over every starting seed
+via `tools/deal_check.py`: **41.2% of opening tables have a same-value pair -- IDENTICAL to the fair-deck
+theoretical rate** (1 - (36*32*28)/(39*38*37) = 0.412); 2000 chained deals = 40.5% (noise). So NO bias --
+~2 deals in 5 do contain a pair. Why it's missed: a same-value pair is always two DIFFERENT suits (unique
+deck -> no two identical cards), which don't read as "a pair" at a glance in a fast demo. Perception, not
+code (same family as the "player wins more" variance hunch). Nothing to fix.
