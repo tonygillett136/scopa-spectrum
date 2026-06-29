@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{meta_desc}}">
+<meta property="og:title" content="{{og_title}}">
+<meta property="og:description" content="{{og_desc}}">
+<meta property="og:image" content="https://scopa-spectrum.gillett-projects.com/img/loading.png">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="{{og_locale}}">
+<meta property="og:url" content="{{canonical}}">
+<link rel="canonical" href="{{canonical}}">
+<link rel="alternate" hreflang="en" href="https://scopa-spectrum.gillett-projects.com/">
+<link rel="alternate" hreflang="it" href="https://scopa-spectrum.gillett-projects.com/it/">
+<link rel="alternate" hreflang="x-default" href="https://scopa-spectrum.gillett-projects.com/">
+<link rel="icon" href="/img/title.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="tricolore-bar"></div>
+  <nav class="lang-switch" aria-label="Language">{{switch}}</nav>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="kicker">{{kicker}}</p>
+      <h1 class="wordmark"><span class="g">S</span><span class="w">C</span>O<span class="w">P</span><span class="r">A</span></h1>
+      <p class="lede">{{lede}}</p>
+      <p class="dedication">{{dedication}}</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/qaop/">▶&nbsp; {{cta_play}}</a>
+        <a class="btn btn-ghost" href="#download">⤓&nbsp; {{cta_dl}}</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="/img/loading.png" alt="{{hero_alt}}" loading="eager">
+      <p class="hero-art-cap">{{hero_cap}}</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ PLAY ============ -->
+<section id="play" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">{{play_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">{{play_intro}}</p>
+
+    <div class="shots-grid gif-grid">
+      <figure>
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="/img/gameplay.png">
+          <source type="image/webp" srcset="/img/gameplay.webp">
+          <img src="/img/gameplay.gif" width="512" height="384" alt="{{gif1_alt}}" loading="lazy">
+        </picture>
+        <figcaption>{{gif1_cap}}</figcaption>
+      </figure>
+      <figure>
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="/img/winner.png">
+          <source type="image/webp" srcset="/img/shimmer.webp">
+          <img src="/img/shimmer.gif" width="512" height="384" alt="{{gif2_alt}}" loading="lazy">
+        </picture>
+        <figcaption>{{gif2_cap}}</figcaption>
+      </figure>
+    </div>
+
+    <p class="play-cta">
+      <a class="btn btn-primary" href="/qaop/">▶&nbsp; {{cta_play}}</a>
+      <a class="btn btn-ghost" href="#download">⤓&nbsp; {{cta_dl}}</a>
+    </p>
+
+    <aside class="controls-card controls-wide">
+      <h3>{{controls_title}}</h3>
+      <ul class="keys">
+        <li><kbd>O</kbd><kbd>P</kbd><span>{{k_move}}</span></li>
+        <li><kbd>SPACE</kbd><span>{{k_play}}</span></li>
+        <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span>{{k_diff}}</span></li>
+        <li><kbd>5</kbd><span>{{k_asso}}</span></li>
+        <li><kbd>6</kbd><span>{{k_sound}}</span></li>
+        <li><kbd>H</kbd><span>{{k_howto}}</span></li>
+      </ul>
+      <p class="tip">{{tip}}</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ SCREENSHOTS ============ -->
+<section id="shots" class="band">
+  <div class="wrap">
+    <h2 class="section-title">{{shots_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <div class="shots-grid">
+      <figure><img src="/img/title.png?v=2" alt="{{s1_alt}}"><figcaption>{{s1_cap}}</figcaption></figure>
+      <figure><img src="/img/gameplay.png?v=2" alt="{{s2_alt}}"><figcaption>{{s2_cap}}</figcaption></figure>
+      <figure><img src="/img/results.png" alt="{{s3_alt}}"><figcaption>{{s3_cap}}</figcaption></figure>
+      <figure><img src="/img/howto.png" alt="{{s4_alt}}"><figcaption>{{s4_cap}}</figcaption></figure>
+      <figure><img src="/img/winner.png" alt="{{s5_alt}}"><figcaption>{{s5_cap}}</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE DECK / ART ============ -->
+<section id="deck" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">{{deck_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">{{deck_intro}}</p>
+    <figure class="deck-hero"><img src="/img/cards_hero.png?v=2" alt="{{deckhero_alt}}"></figure>
+    <figure class="deck-full"><img src="/img/deck.png?v=2" alt="{{deckfull_alt}}">
+      <figcaption>{{deckfull_cap}}</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="band">
+  <div class="wrap">
+    <h2 class="section-title">{{feat_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <div class="features">
+      <div class="feature"><span class="fi">♠</span><h3>{{f1_t}}</h3><p>{{f1_b}}</p></div>
+      <div class="feature"><span class="fi">⚔</span><h3>{{f2_t}}</h3><p>{{f2_b}}</p></div>
+      <div class="feature"><span class="fi">🪙</span><h3>{{f3_t}}</h3><p>{{f3_b}}</p></div>
+      <div class="feature"><span class="fi">🎴</span><h3>{{f4_t}}</h3><p>{{f4_b}}</p></div>
+      <div class="feature"><span class="fi">🃏</span><h3>{{f5_t}}</h3><p>{{f5_b}}</p></div>
+      <div class="feature"><span class="fi">📼</span><h3>{{f6_t}}</h3><p>{{f6_b}}</p></div>
+      <div class="feature"><span class="fi">▶</span><h3>{{f7_t}}</h3><p>{{f7_b}}</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOWNLOAD ============ -->
+<section id="download" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">{{dl_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">{{dl_intro}}</p>
+    <div class="dl-row">
+      <a class="dl-card" href="/scopa.tzx" download>
+        <span class="dl-fmt">.TZX</span>
+        <span class="dl-name">scopa.tzx</span>
+        <span class="dl-meta">{{dl_tzx_meta}}</span>
+      </a>
+      <a class="dl-card" href="/scopa.tap" download>
+        <span class="dl-fmt">.TAP</span>
+        <span class="dl-name">scopa.tap</span>
+        <span class="dl-meta">{{dl_tap_meta}}</span>
+      </a>
+      <a class="dl-card" href="/scopa.sna" download>
+        <span class="dl-fmt">.SNA</span>
+        <span class="dl-name">scopa.sna</span>
+        <span class="dl-meta">{{dl_sna_meta}}</span>
+      </a>
+    </div>
+    <p class="dl-note">{{dl_note}}</p>
+  </div>
+</section>
+
+<!-- ============ STORY ============ -->
+<section id="story" class="band">
+  <div class="wrap narrow">
+    <h2 class="section-title">{{story_title}}</h2>
+    <div class="tricolore-rule"></div>
+    <p>{{story_p1}}</p>
+    <p>{{story_p2}}</p>
+    <p class="story-links">{{story_links}}</p>
+    <p class="story-sign">{{story_sign}}</p>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="tricolore-bar"></div>
+  <div class="wrap footer-inner">
+    <p class="foot-title">SCOPA · 48K ZX Spectrum</p>
+    <p class="foot-credits">{{foot_credits}}</p>
+    <p class="foot-links">{{foot_links}}</p>
+  </div>
+</footer>
+</body>
+</html>

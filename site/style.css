@@ -154,3 +154,12 @@ footer{margin-top:20px}
 .gif-grid{max-width:760px;margin:0 auto}
 .play-cta{text-align:center;margin:34px 0 0}
 .controls-wide{max-width:600px;margin:36px auto 0}
+
+/* language switcher (top-right of the hero) */
+.lang-switch{position:absolute;top:14px;right:20px;z-index:5;display:flex;gap:6px;align-items:center;
+  font-family:'Cinzel',serif;font-size:.8rem;letter-spacing:.08em;
+  background:rgba(8,50,47,.6);padding:4px 11px;border-radius:999px;border:1px solid var(--line)}
+.lang-switch a{color:#cfe0dc;text-decoration:none}
+.lang-switch a:hover{color:#fff}
+.lang-switch a.active{color:var(--gold);font-weight:700}
+.lang-switch span{color:rgba(244,241,230,.4)}

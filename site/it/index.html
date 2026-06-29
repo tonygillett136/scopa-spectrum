@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCOPA — il gioco di carte italiano per lo ZX Spectrum 48K</title>
+<meta name="description" content="Scopa, il gioco di carte italiano, scritto a mano in codice macchina Z80 per uno ZX Spectrum 48K Sinclair non modificato. Giocaci nel browser o scarica il nastro. La ricreazione del gioco perduto di Angelo Colucci.">
+<meta property="og:title" content="SCOPA per lo ZX Spectrum 48K">
+<meta property="og:description" content="Il gioco di carte italiano Scopa, in codice macchina Z80 per un vero ZX Spectrum 48K. Giocaci nel browser o scarica il nastro per l'hardware reale.">
+<meta property="og:image" content="https://scopa-spectrum.gillett-projects.com/img/loading.png">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="it_IT">
+<meta property="og:url" content="https://scopa-spectrum.gillett-projects.com/it/">
+<link rel="canonical" href="https://scopa-spectrum.gillett-projects.com/it/">
+<link rel="alternate" hreflang="en" href="https://scopa-spectrum.gillett-projects.com/">
+<link rel="alternate" hreflang="it" href="https://scopa-spectrum.gillett-projects.com/it/">
+<link rel="alternate" hreflang="x-default" href="https://scopa-spectrum.gillett-projects.com/">
+<link rel="icon" href="/img/title.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="tricolore-bar"></div>
+  <nav class="lang-switch" aria-label="Language"><a href="/">EN</a><span aria-hidden="true">·</span><a href="/it/" class="active" aria-current="page">IT</a></nav>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="kicker">Un gioco di carte italiano per lo&nbsp;ZX&nbsp;Spectrum&nbsp;48K</p>
+      <h1 class="wordmark"><span class="g">S</span><span class="w">C</span>O<span class="w">P</span><span class="r">A</span></h1>
+      <p class="lede">La <em>Scopa</em>, il classico gioco di carte italiano — scritta a mano in puro codice macchina Z80 per uno ZX&nbsp;Spectrum 48K Sinclair non modificato. Mazzo napoletano completo, un avversario davvero forte e leale (non vede mai le tue carte), e partita all'&nbsp;undici.</p>
+      <p class="dedication">La ricreazione del gioco perduto di un amico —<br><span>basata su un gioco originale per ZX&nbsp;Spectrum di&nbsp;Angelo&nbsp;Colucci.</span></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/qaop/">▶&nbsp; Gioca nel browser</a>
+        <a class="btn btn-ghost" href="#download">⤓&nbsp; Scarica il nastro</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="/img/loading.png" alt="Schermata di caricamento di Scopa: un cavaliere napoletano a cavallo che regge una moneta d'oro, con la scritta SCOPA sul tricolore italiano" loading="eager">
+      <p class="hero-art-cap">La schermata di caricamento del nastro — disegnata pixel per pixel sullo Spectrum.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ PLAY ============ -->
+<section id="play" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">Gioca subito</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">La <em>Scopa</em> è il classico gioco di presa italiano: giochi una carta per catturare le carte sul tavolo che ne sommano il valore, e svuotare tutto il tavolo vale una <em>scopa</em>. Si fanno punti con le carte, i denari, il <em>settebello</em>, la <em>primiera</em> e ogni scopa — vince chi arriva per primo a undici. E gira proprio qui nel browser, senza download né plug-in: lascia che si avvii, poi premi <kbd>SPACE</kbd> e gioca. Preferisci l'hardware vero? Il nastro è qui sotto.</p>
+
+    <div class="shots-grid gif-grid">
+      <figure>
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="/img/gameplay.png">
+          <source type="image/webp" srcset="/img/gameplay.webp">
+          <img src="/img/gameplay.gif" width="512" height="384" alt="Gioco animato: carte napoletane giocate e catturate sul panno azzurro" loading="lazy">
+        </picture>
+        <figcaption>Una mano in gioco — gioca anche da solo in modalità dimostrativa</figcaption>
+      </figure>
+      <figure>
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="/img/winner.png">
+          <source type="image/webp" srcset="/img/shimmer.webp">
+          <img src="/img/shimmer.gif" width="512" height="384" alt="La schermata di vittoria VINCITORE con un effetto dorato raggiante animato" loading="lazy">
+        </picture>
+        <figcaption>VINCITORE! — vinci la partita e i raggi dorati luccicano</figcaption>
+      </figure>
+    </div>
+
+    <p class="play-cta">
+      <a class="btn btn-primary" href="/qaop/">▶&nbsp; Gioca nel browser</a>
+      <a class="btn btn-ghost" href="#download">⤓&nbsp; Scarica il nastro</a>
+    </p>
+
+    <aside class="controls-card controls-wide">
+      <h3>Comandi</h3>
+      <ul class="keys">
+        <li><kbd>O</kbd><kbd>P</kbd><span>Sposta il cursore sulle tue carte</span></li>
+        <li><kbd>SPACE</kbd><span>Gioca la carta selezionata / conferma</span></li>
+        <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span>Facile / Medio / Difficile / Esperto</span></li>
+        <li><kbd>5</kbd><span>Attiva/disattiva la regola opzionale <em>Asso piglia tutto</em></span></li>
+        <li><kbd>6</kbd><span>Audio acceso / spento</span></li>
+        <li><kbd>H</kbd><span>Come si gioca</span></li>
+      </ul>
+      <p class="tip">La carta che giochi resta in mano mentre scegli cosa catturare, così non nasconde mai il tavolo. Lascialo fermo e lo Spectrum gioca da solo — premi <kbd>SPACE</kbd> per prendere il controllo.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ SCREENSHOTS ============ -->
+<section id="shots" class="band">
+  <div class="wrap">
+    <h2 class="section-title">In partita</h2>
+    <div class="tricolore-rule"></div>
+    <div class="shots-grid">
+      <figure><img src="/img/title.png?v=2" alt="Schermata del titolo: l'Asso di spade con la scritta SCOPA e il tricolore"><figcaption>Schermata del titolo</figcaption></figure>
+      <figure><img src="/img/gameplay.png?v=2" alt="Una mano in corso: il panno azzurro, le carte coperte dell'avversario, il tavolo e le tue carte"><figcaption>Una mano in corso</figcaption></figure>
+      <figure><img src="/img/results.png" alt="Schermata dei punti di fine smazzata: Carte, Denari, Settebello, Primiera e altro"><figcaption>Conteggio dei punti</figcaption></figure>
+      <figure><img src="/img/howto.png" alt="La schermata «come si gioca» dentro al gioco"><figcaption>Come si gioca</figcaption></figure>
+      <figure><img src="/img/winner.png" alt="La schermata di vittoria VINCITORE: il Re di denari sui raggi dorati quando vinci la partita"><figcaption>Vincitore!</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE DECK / ART ============ -->
+<section id="deck" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">Un fedele mazzo napoletano</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">Ognuna delle quaranta carte è resa in <em>monocromia definita</em> — linee nere nitide con ombreggiatura a retino ordinato — ricalcata fedelmente da un vero mazzo <em>napoletano</em>. I quattro semi (denari, coppe, spade, bastoni), il settebello e le figure con i semi disegnati a mano, tutto su una sola macchina da 48&nbsp;KB.</p>
+    <figure class="deck-hero"><img src="/img/cards_hero.png?v=2" alt="Cinque carte in primo piano: il sette di denari, l'asso di coppe, il re di denari, il cavallo di coppe e il re di bastoni"></figure>
+    <figure class="deck-full"><img src="/img/deck.png?v=2" alt="Il mazzo napoletano completo di quaranta carte realizzato per lo ZX Spectrum">
+      <figcaption>Il mazzo completo di quaranta carte.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="band">
+  <div class="wrap">
+    <h2 class="section-title">Cosa c’è dentro</h2>
+    <div class="tricolore-rule"></div>
+    <div class="features">
+      <div class="feature"><span class="fi">♠</span><h3>Puro Z80</h3><p>Codice macchina scritto a mano al 100% su uno Spectrum 48K non modificato — niente hardware aggiuntivo, niente 128K.</p></div>
+      <div class="feature"><span class="fi">⚔</span><h3>Un avversario forte</h3><p>Quattro livelli — Facile, Medio, Difficile ed <em>Esperto</em>. Ognuno valuta ogni mossa lecita con una funzione di valore calibrata; l'Esperto conta le carte e, finito il mazzo, risolve il finale in modo esatto. Gioca lealmente: non vede mai le tue carte.</p></div>
+      <div class="feature"><span class="fi">🪙</span><h3>Punteggio completo</h3><p>Carte, Denari, Settebello, Primiera, ogni Scopa, più i bonus regionali della Napola e delle <em>palle del cane</em>. Vince chi arriva per primo a undici.</p></div>
+      <div class="feature"><span class="fi">🎴</span><h3>Grafica autentica</h3><p>Ogni valore e ogni seme restano leggibili nei 48&times;64 pixel dello Spectrum — fin nelle piccole corone che distinguono un <em>Re</em> da un <em>Fante</em>.</p></div>
+      <div class="feature"><span class="fi">🃏</span><h3>Regola opzionale</h3><p><em>Asso piglia tutto</em> — l'asso prende l'intero tavolo — incluso come opzione, disattivata di default, nella variante <em>Scopa d’Assi</em>.</p></div>
+      <div class="feature"><span class="fi">📼</span><h3>Si carica da nastro</h3><p>Un caricatore silenzioso in più parti avvia direttamente la schermata del titolo sull'hardware reale — forniti sia TZX che TAP.</p></div>
+      <div class="feature"><span class="fi">▶</span><h3>Gioca da solo</h3><p>Lascialo fermo sul titolo e parte la modalità dimostrativa — l'IA gioca contro sé stessa da <em>Esperto</em>, mano dopo mano. Premi <em>Spazio</em> per entrare in gioco.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOWNLOAD ============ -->
+<section id="download" class="band band-dark">
+  <div class="wrap">
+    <h2 class="section-title">Scarica e gioca su hardware reale</h2>
+    <div class="tricolore-rule"></div>
+    <p class="section-intro">Prendi un'immagine del nastro per il tuo Spectrum reale o per il tuo emulatore preferito (Fuse, ZEsarUX, Spectaculator…). Si caricano in modo identico; il TZX include anche i metadati di titolo, autore e anno.</p>
+    <div class="dl-row">
+      <a class="dl-card" href="/scopa.tzx" download>
+        <span class="dl-fmt">.TZX</span>
+        <span class="dl-name">scopa.tzx</span>
+        <span class="dl-meta">Consigliato · con metadati d'archivio · ~36 KB</span>
+      </a>
+      <a class="dl-card" href="/scopa.tap" download>
+        <span class="dl-fmt">.TAP</span>
+        <span class="dl-name">scopa.tap</span>
+        <span class="dl-meta">Immagine semplice del nastro · ~36 KB</span>
+      </a>
+      <a class="dl-card" href="/scopa.sna" download>
+        <span class="dl-fmt">.SNA</span>
+        <span class="dl-name">scopa.sna</span>
+        <span class="dl-meta">Snapshot 48K · caricamento istantaneo, senza nastro · ~48 KB</span>
+      </a>
+    </div>
+    <p class="dl-note">Su un vero Spectrum 48K: <code>LOAD ""</code> e avvia il nastro. Si avvia da solo fino alla schermata del titolo.</p>
+  </div>
+</section>
+
+<!-- ============ STORY ============ -->
+<section id="story" class="band">
+  <div class="wrap narrow">
+    <h2 class="section-title">La storia</h2>
+    <div class="tricolore-rule"></div>
+    <p>Anni fa un amico, <strong>Angelo Colucci</strong>, scrisse un gioco di Scopa per lo ZX&nbsp;Spectrum. Le sue carte disegnate a mano erano splendide — e, come tanto software casalingo a 8 bit, è andato perduto con i nastri e con gli anni.</p>
+    <p>Questa è una ricreazione, fatta per rendergli omaggio — e per rimetterlo nelle mani di Angelo: il gioco di carte italiano per intero, riscritto da zero in codice macchina Z80 per una vera macchina 48K. Le regole e il punteggio sono stati verificati sul gioco napoletano standard, la grafica delle carte ricalcata fedelmente da un mazzo fisico, e l'IA messa a punto con decine di migliaia di partite giocate da sola. Il tutto è stato sviluppato e collaudato su hardware reale, su un CRT.</p>
+    <p class="story-links"><a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/ARTICLE.md">Come è stato realizzato&nbsp;→</a> &nbsp;·&nbsp; <a href="https://github.com/tonygillett136/scopa-spectrum">Codice su GitHub</a></p>
+    <p class="story-sign">— Tony Gillett, 2026</p>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="tricolore-bar"></div>
+  <div class="wrap footer-inner">
+    <p class="foot-title">SCOPA · 48K ZX Spectrum</p>
+    <p class="foot-credits">Gioco © Tony Gillett 2026 · basato su un originale di Angelo Colucci.<br>100% assembly Z80 per lo ZX Spectrum 48K.<br>La grafica delle carte deriva da un mazzo napoletano fisico, resa in monocromia per lo Spectrum.</p>
+    <p class="foot-links"><a href="https://github.com/tonygillett136/scopa-spectrum">Codice su GitHub</a> · <a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/ARTICLE.md">Come è stato realizzato</a> · <a href="https://github.com/tonygillett136/scopa-spectrum/blob/main/RULES.md">Regole e punteggio</a></p>
+  </div>
+</footer>
+</body>
+</html>
