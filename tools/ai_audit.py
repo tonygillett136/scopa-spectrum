@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Audit the SHIPPED Scopa AI's discard choices (esp. the coin-king question).
+[ARCHIVED experiment -- carries its own weight copy from its day; for CURRENT shipped
+ weights import tools/shipped_weights.py, do not trust weight literals below.]
 
 Imports the faithful host-mirror from ai_tune.py but overrides the weights with the
 ACTUAL shipped values baked into scopa.asm (ai_tune.W0 is the stale pre-tuning baseline).

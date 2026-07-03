@@ -91,8 +91,11 @@ regenerating the art).
 python tools/convert_deck.py      # -> deck.bin        (RUN FROM this directory)
 python tools/make_screens.py      # -> title.scr, loading.scr, *_banner.bin
 
-# assemble + build the tape:
-sjasmplus scopa.asm               # -> scopa.sna (emulator) + scopa_code.bin
+# assemble + build the tape (one command):
+./build.sh                        # -> scopa.sna (emulator) + scopa.tap + scopa.tzx
+# or by hand -- the --sym is REQUIRED (build_tap.py reads loader addresses from scopa.sym,
+# and sjasmplus does not refresh the .sym unless asked; build_tap refuses stale inputs):
+sjasmplus scopa.asm --sym=scopa.sym
 python build_tap.py               # -> scopa.tap
 python build_tzx.py               # -> scopa.tzx
 ```

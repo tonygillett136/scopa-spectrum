@@ -18,7 +18,9 @@ VAL = [i % 10 + 1 for i in range(40)]            # card -> value 1..10
 SUIT = [i // 10 for i in range(40)]              # card -> suit 0..3
 PRIME_BY_VALUE = {1:16,2:12,3:13,4:14,5:15,6:18,7:21,8:10,9:10,10:10}
 
-# ---- current Z80 weights (the baseline to beat) ----
+# ---- HISTORICAL pre-tune baseline (what the optimiser measured against) ----
+# NOT the shipped weights! The tuned values that actually ship live in scopa.asm and are
+# mirrored in tools/shipped_weights.py -- import from there for anything current.
 W0 = dict(
     card_count=2, denari=5, settebello_cap=35, seven=15, six=8, ace=6, sweep=50,
     drop_settebello=-40, drop_seven=-12, drop_six=-6, drop_denari=-4, drop_face=3,

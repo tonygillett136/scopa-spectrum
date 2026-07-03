@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Prototype: PRIMIERA / suit-completion awareness for the Scopa AI.
+[ARCHIVED experiment -- carries its own weight copy from its day; for CURRENT shipped
+ weights import tools/shipped_weights.py, do not trust weight literals below.]
 
 The shipped 1-ply evaluator is STATELESS (sees only hand+table). Primiera is decided
 in ~95% of deals but the AI is blind to it beyond fixed per-card bonuses. This adds a
