@@ -10,12 +10,20 @@ import sys, os, json, subprocess
 sys.path.insert(0, "/Volumes/SSD1/code/retro_computing/zxspectrum/mastery/tools")
 from zx_shot import Speccy
 
-CMD, RSLOT, ROPT, RTN, RCAP = 0x7E00, 0x7E01, 0x7E02, 0x7E03, 0x7E04
-Table, TableN, Opp = 0xBA2E, 0xBA3E, 0xBA2B
-OPile, OPileN = 0xBA6B, 0xBA93
-Seen, Difficulty, DeckPos, AceRule = 0xBB03, 0xBB02, 0xBA3F, 0xBB65
-SCRATCH = ('/private/tmp/claude-501/-Volumes-SSD1-code-retro-computing/'
-           '72dc0c20-d47b-4fae-9ee6-816d84514517/scratchpad/odd_boards.json')
+CMD, RSLOT, ROPT, RTN, RCAP = 0x7E00, 0x7E01, 0x7E02, 0x7E03, 0x7E04   # TM70 mailbox (fixed)
+# State addresses come from scopa.sym -- the state ORG has moved four times in this project's
+# history; hardcoding these silently poked wrong memory after any move. Requires a TM70 build
+# (sjasmplus scopa.asm -DTESTMODE=70 --sym=scopa.sym) so the sym matches the loaded tape.
+import re
+def _sym(name):
+    for ln in open("scopa.sym"):
+        if ln.split(":", 1)[0].strip() == name:
+            return int(re.search(r"0x[0-9A-Fa-f]+", ln).group(), 16)
+    raise SystemExit(f"{name} not in scopa.sym -- assemble the TM70 build first")
+Table, TableN, Opp = _sym("Table"), _sym("TableN"), _sym("Opp")
+OPile, OPileN = _sym("OPile"), _sym("OPileN")
+Seen, Difficulty, DeckPos, AceRule = _sym("Seen"), _sym("Difficulty"), _sym("DeckPos"), _sym("AceRule")
+SCRATCH = os.path.join(os.path.dirname(__file__), "..", "tmp", "odd_boards.json")
 
 def seen_bytes(cards):
     b = bytearray(5)

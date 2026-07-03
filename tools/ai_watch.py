@@ -31,9 +31,14 @@ def nm(c): return f"{RN[VAL[c]]} di {SN[SUIT[c]]}"
 def names(cs): return [nm(c) for c in cs]
 def is_coin(c): return c < 10
 
-W = dict(card_count=3, coin=5, settebello=35, seven=12, six=8, ace=6, sweep=50,
-         drop_settebello=-40, drop_seven=-5, drop_six=-5, drop_coin=-4, drop_face=3,
-         sweep_risk=-9, easy_capture=-5, ace_guard=-1, ace_guard_sette=-25, napola=35)
+from shipped_weights import SHIPPED as _SW   # single source of truth (mirrors scopa.asm)
+W = dict(card_count=_SW['card_count'], coin=_SW['denari'], settebello=_SW['settebello_cap'],
+         seven=_SW['seven'], six=_SW['six'], ace=_SW['ace'], sweep=_SW['sweep'],
+         drop_settebello=_SW['drop_settebello'], drop_seven=_SW['drop_seven'],
+         drop_six=_SW['drop_six'], drop_coin=_SW['drop_denari'], drop_face=_SW['drop_face'],
+         sweep_risk=_SW['leave_sweep_risk'], easy_capture=_SW['leave_easy_capture'],
+         ace_guard=_SW['ace_guard_card'], ace_guard_sette=_SW['ace_guard_settebello'],
+         napola=_SW['napola'])
 
 # ---------------- rules ----------------
 def find_captures(val, table, ace_rule=False):
@@ -312,8 +317,7 @@ def main():
         print(f"     {'+'.join(kind):20} {c}")
     print(f"  soft tags: gave_scopa={counts['gave_scopa']}  left_settebello={counts['left_settebello']}"
           f"  drop_with_capture={counts['drop_with_capture']}")
-    out = os.environ.get('SCRATCH', '/private/tmp/claude-501/-Volumes-SSD1-code-retro-computing/'
-          '72dc0c20-d47b-4fae-9ee6-816d84514517/scratchpad')
+    out = os.environ.get('SCRATCH', os.path.join(os.path.dirname(__file__), '..', 'tmp'))
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, 'odd_boards.json'), 'w') as fh:
         json.dump(dict(counts=dict(counts), dominated=examples['DOMINATED']), fh, indent=1)

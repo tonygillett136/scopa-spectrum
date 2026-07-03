@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Prototype: NAPOLA (and palle) awareness for the Scopa AI — Tony's observation, 2026-06-28.
+[ARCHIVED experiment -- carries its own weight copy from its day; for CURRENT shipped
+ weights import tools/shipped_weights.py, do not trust weight literals below.]
 
 The shipped 1-ply eval values 7s (+12), the settebello (+35) and coins (+5), but is BLIND to
 the NAPOLA (A+2+3 of coins = 3 pts, +1 per further consecutive coin) and to the palle del cane

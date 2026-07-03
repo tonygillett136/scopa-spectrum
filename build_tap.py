@@ -23,23 +23,45 @@ def block(flag,data):
 def header(typ,name,length,p1,p2):
     return block(0,bytes([typ])+name.encode()[:10].ljust(10)+length.to_bytes(2,'little')+p1.to_bytes(2,'little')+p2.to_bytes(2,'little'))
 
-loadzx0=open("loading.zx0","rb").read()    # ZX0-packed loading screen -> decoded to 0x4000 at boot
-code=open("scopa_code.bin","rb").read()    # 0x8000
-title=open("title.zx0","rb").read()        # 0x6000 (ZX0-packed; decoded to 0x4000 at boot)
-title2=open("title2.zx0","rb").read()      # 0x6000+len(title) (second rotating title screen)
-deck=open("deck_zx0.bin","rb").read()      # 0xC000  (ZX0-COMPRESSED deck + index)
-decoder=open("decoder.bin","rb").read()    # 0xE100  (decoder + dzx0 + cache code + CacheIds=0xFF)
-winzx0=open("win_zx0.bin","rb").read()     # 0xF20A  (ZX0 VINCITORE screen; = CacheBase + CACHEN*384)
-WINADDR=0xF20A                             # past the 10-slot card cache; ShowWinYou unpacks it to 0x4000
+# ---- guards: refuse to build from stale inputs (plain `sjasmplus scopa.asm` does NOT rewrite
+# scopa.sym; this script reads TapeFlag/dzx0 from it, so a stale sym silently mis-pokes the loader).
+# The one true build is:  sjasmplus scopa.asm --sym=scopa.sym  (or just run ./build.sh)
+import os, re, sys
+_src=os.path.getmtime("scopa.asm")
+for _dep in ("scopa_code.bin","scopa.sym"):
+    if os.path.getmtime(_dep) < _src:
+        sys.exit(f"STALE BUILD: {_dep} is older than scopa.asm -- run: "
+                 f"../mastery/tools/sjasmplus scopa.asm --sym=scopa.sym  (or ./build.sh)")
 
-import re
 def sym(name):                             # read a label's address from the assembler symbol file
     for ln in open("scopa.sym"):
         if ln.split(":",1)[0].strip()==name:
             return int(re.search(r"0x[0-9A-Fa-f]+",ln).group(),16)
     raise SystemExit(f"{name} not found in scopa.sym -- assemble first")
-DZX0=sym("dzx0_standard")                   # the 68B ZX0 decoder lives inside decoder.bin (@0xE100..)
+DZX0=sym("dzx0_standard")                   # the 68B ZX0 decoder lives inside decoder.bin
 TAPEFLAG=sym("TapeFlag")                     # loader sets this to 1 so the game skips its boot hold
+DECODER_AT=sym("DecodeCardA")               # decoder block ORG (0xE100)
+CACHEBASE=sym("CacheBase")                  # card cache starts here; decoder must END below it
+WINADDR=sym("WinZX0")                       # past the CACHEN-slot card cache; ShowWinYou unpacks to 0x4000
+
+loadzx0=open("loading.zx0","rb").read()    # ZX0-packed loading screen -> decoded to 0x4000 at boot
+code=open("scopa_code.bin","rb").read()    # 0x8000
+title=open("title.zx0","rb").read()        # 0x6000 (ZX0-packed; decoded to 0x4000 at boot)
+title2=open("title2.zx0","rb").read()      # 0x6000+len(title) (second rotating title screen)
+deck=open("deck_zx0.bin","rb").read()      # 0xC000  (ZX0-COMPRESSED deck + index)
+decoder=open("decoder.bin","rb").read()    # loaded to DecodeCardA (decoder + dzx0 + cache code)
+winzx0=open("win_zx0.bin","rb").read()     # loaded to WinZX0 (ZX0 VINCITORE screen)
+
+# ---- fit asserts: these regions have hard neighbours; a worse-compressing asset must FAIL the
+# build, not silently overwrite its neighbour on the real machine.
+def _fit(cond,what):
+    if not cond: sys.exit(f"DOES NOT FIT: {what}")
+_fit(0xC000+len(deck)      <= DECODER_AT, f"deck_zx0.bin ends 0x{0xC000+len(deck):X} > decoder at 0x{DECODER_AT:X}")
+_fit(DECODER_AT+len(decoder) <= CACHEBASE, f"decoder.bin ends 0x{DECODER_AT+len(decoder):X} > cache at 0x{CACHEBASE:X}")
+_fit(DECODER_AT <= DZX0 < DECODER_AT+len(decoder), "dzx0_standard is not inside decoder.bin -- sym/binary mismatch")
+_fit(len(title)+len(title2) <= 0x2000,     f"titles {len(title)}+{len(title2)}B exceed 0x6000-0x7FFF")
+_fit(len(loadzx0)           <= 0x2000,     f"loading.zx0 {len(loadzx0)}B exceeds the 0x6000 scratch")
+_fit(WINADDR+len(winzx0)    <= 0x10000,    f"win_zx0.bin ends past 0xFFFF (0x{WINADDR+len(winzx0):X})")
 
 # ---- tiny ML loader (POKEd to the printer buffer @23296) ----
 # Loads everything SILENTLY via ROM LD-BYTES (0x0556). The loading screen is ZX0-packed: load the
@@ -55,7 +77,7 @@ def ldbytes(dest, length):
     return [0xDD,0x21]+w16(dest)+[0x11]+w16(length)+[0x3E,0xFF,0x37,0xCD,0x56,0x05]
 LOADER = ([0xF3]                                          # di
           + [0x21,0x00,0x58, 0x11,0x01,0x58, 0x01,0xFF,0x02, 0x36,0x00, 0xED,0xB0]  # blank attrs 0x5800.. black
-          + ldbytes(0xE100, len(decoder))                 # decoder (incl. dzx0) FIRST
+          + ldbytes(DECODER_AT, len(decoder))             # decoder (incl. dzx0) FIRST
           + ldbytes(0x6000, len(loadzx0))                 # compressed loading screen -> scratch @0x6000
           # V-SYNCED reveal (no "horizontal blinds"): decode the screen to a SHADOW @0xC000 (free until the
           # deck loads there later), copy the bitmap to 0x4000 under the still-black attrs (invisible), then
@@ -74,6 +96,7 @@ LOADER = ([0xF3]                                          # di
           + [0xC3,0x00,0x80])                             # jp 0x8000
 LADDR = 23296
 LEND  = LADDR + len(LOADER) - 1
+_fit(len(LOADER) <= 256, f"ML loader {len(LOADER)}B exceeds the 256B printer buffer @23296")
 
 # ---- BASIC: poke the loader, run it (no LOAD SCREEN$ -> the loader pops the screen in itself) ----
 prog  = line(10, [('k','CLEAR'),('n',32767)],

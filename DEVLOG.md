@@ -1383,4 +1383,60 @@ ONLY card-by-card removal (all Removed>=3 captures); 1-2-card removals are a sin
 unchanged. Verified per iteration: clean build, demo advances + coherent, 3->0 multi-card sweep observed.
 NOTE: TESTMODE 50 is bit-rotted (its direct ResolvePlay call no longer fires the sweep; fails identically
 on the pre-change build -- its comment still references the removed ZipCompact behind-the-beam clear).
-Future tidy, not a regression.
+Future tidy, not a regression. [CORRECTION 2026-07-03: TM50 was NEVER bit-rotted -- see the root-and-branch
+review entry below; the "failure" was a 6-second test read calibrated to the OLD animation timing, landing
+mid-banner. TableN reads 0 from ~12s. The test is healthy.]
+
+## Root-and-branch code review (2026-07-03, branch code-review, four parallel review agents + verify pass)
+Tony's ask: full audit -- bugs, optimisation, reclaimable memory, rot. Method: four parallel deep-review
+agents (logic/rules/AI; rendering/tear-invariants; memory/dead-code; tooling/tests/docs), every significant
+claim then re-verified by hand against the source before any edit. Score: the game logic, scoring, endgame
+minimax and the entire tear-free rendering architecture came back CLEAN -- the review found ONE real
+defect class, some honest rot, and a set of unguarded build traps.
+
+**THE BUG (fixed): per-play flags leak across the abandon longjmp.** DemoCheckSpace / CheckSoftReset /
+CheckWinCheat abandon via `ld sp,0xBFF0 / jp NewGame` from ANY Delay/SlideIn poll -- and neither they nor
+NewMatch/NewRound reset the per-play flags. Real, user-triggerable leaks: a stale RevealInPlace (abandon
+during a crowded capture's banner hold) made every later non-crowded capture skip ShowCapture -- the played
+card's image lingered on the band until the next repaint, persisting until the next crowded capture; a
+stale WavePlayed (abandon mid-flash, the demo's most-watched moment) ghost-flashed an empty slot on the
+next crowded wave. DropPreShift's leak was masked only by a fragile prologue default (dim-1's data-corruption
+scenario was traced and shown UNREACHABLE -- the first play of a game always runs the slide prologue).
+FIX: a 5-flag sanitize block in NewRound (DropPreShift/RevealInPlace/ChoiceMade/WavePlayed/Removed --
+the R50 far-left flash was exactly a stale-Removed bug of this class). Verified by injecting all five
+mid-demo and confirming NewRound clears them.
+
+**Reclaimed 153 bytes (CodeEnd 0xB4E5 -> 0xB44C, ~1.45 KB free):** deleted dead code -- Blit (the historic
+full-screen LDIR, zero callers since DeltaBlit), TriCol (orphaned tricolore table), CapN (dead state var),
+WarmBoard+WarmArr (dead in the decoder region); gated ScoreTestSetup/LastPlayTestSetup/ScaleTune behind
+IF TESTMODE != 0 (test fixtures were shipping in the game binary). False positives caught by hand-verify:
+ShowTitle/TapeFlag look dead to a naive scan but live inside IF TESTMODE==0; win.zx0 is the INCBIN SOURCE
+of win_zx0.bin (identical by construction, NOT a deletable duplicate). Deleted the genuinely orphaned
+lose.scr/lose.zx0 (referenced by nothing -- the lose screen is the scoreboard by design). DEFERRED as
+not-worth-the-risk: factoring the 25x addHLA idioms (~107B, cold code but churn) and the three CRT-tuned
+crowded-capture tails (~35B) -- no memory pressure (another +1KB is one state-ORG slide away).
+
+**Build traps closed (build_tap.py):** (1) STALENESS GUARD -- refuses to build if scopa_code.bin/scopa.sym
+are older than scopa.asm (the stale-sym trap is now impossible, not just documented); (2) FIT ASSERTS --
+deck<decoder (the gap was 40 BYTES), decoder<cache, dzx0-inside-decoder, titles<0x8000, win<0x10000,
+loader<=256B: a worse-compressing asset now FAILS the build instead of silently corrupting RAM on the real
+machine; (3) WinZX0/DecodeCardA/CacheBase now read from scopa.sym instead of hardcoded. NEW ./build.sh =
+the one documented build command. README's public build instructions taught the stale-sym recipe -- fixed.
+
+**Tooling drift killed:** tools/shipped_weights.py is now THE single source of the shipped AI weights
+(there were FIVE divergent copies; ai_tune's W0 relabelled as the historical pre-tune baseline it actually
+is; ai_watch imports the module; archived experiments annotated). ai_zx_check.py reads all state addresses
+from scopa.sym instead of hardcoding them (the state ORG has moved four times; this pass alone moved Seen
+by deleting CapN -- the hardcoded probe would have silently poked garbage). Session-specific scratch paths
+-> ./tmp. site/index.html + /it/ now carry a GENERATED marker and DEVELOPMENT.md documents the site
+generator (they were silently clobber-able). TESTMODE mailbox map documented in DEVELOPMENT.md s11.
+
+**Comments added where the review found undocumented couplings:** SweepToLast clobbers Who (repaired by
+.domove -- don't remove the reload); AddOption's 16-cap + the TableN<=13 proof; the demo player-side
+Seen[] asymmetry (accepted, invisible in the human game); TM70's mailbox aliasing DBattr; TM35/36/50
+comments refreshed to current semantics (thresholds, RemoveCascade, the 12s read note).
+
+Verified: clean build, 10 TESTMODEs spot-assembled, flag-injection test, ai_watch selftest through the
+new weights module, staleness guard trips on a stale sym and passes on a fresh one, 60s demo advancing.
+tap 35,611B (was 35,766). Branch pushed for Tony's merge call -- the game binary changes (flag fix + dead
+code), so the usual CRT pass applies before it ships.

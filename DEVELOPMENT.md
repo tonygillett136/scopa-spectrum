@@ -37,7 +37,7 @@ memory map, build process, key decisions and gotchas. For the chronological stor
 
 ```
 scopa/                 (the CANONICAL decode-on-draw game; original resident-deck build archived in legacy-v1/)
-  scopa.asm            THE game (Z80, sjasmplus). ~7400 lines. Builds scopa.sna + scopa_code.bin.
+  scopa.asm            THE game (Z80, sjasmplus). ~8800 lines. Builds scopa.sna + scopa_code.bin.
   deck.bin             40 cards + 1 back, 384 bitmap bytes each (41×384). NOT shipped resident —
                        it's the SOURCE that compress_deck.py packs to deck.zx0 + deck_index.bin.
                        Kings carry the R42 crown (convert_deck.crown_king); coppe figures a cup pip.
@@ -62,9 +62,13 @@ scopa/                 (the CANONICAL decode-on-draw game; original resident-dec
   zxtest.py            ZEsarUX harness: load .sna/.tap/.tzx/.z80, screenshot, read memory.
   legacy-v1/           the original resident-deck game (source, build, harnesses, prototypes), archived.
   research/            the decode-on-draw sandbox proofs (M0-M5, RESULTS/DESIGN/AUDIT, win-art generators).
-  site/                front-end: landing page + gameplay/shimmer GIFs + .tap/.tzx/.sna downloads, and
-                       site/qaop/ = a self-hosted Qaop/JS in-browser emulator (auto-loads bin/scopa.sna
-                       via window.play). Deploy: npx wrangler pages deploy site --project-name=scopa-spectrum.
+  site/                front-end: landing page (BILINGUAL: EN at /, IT at /it/) + gameplay/shimmer GIFs
+                       + .tap/.tzx/.sna downloads, and site/qaop/ = a self-hosted Qaop/JS in-browser
+                       emulator (auto-loads bin/scopa.sna via window.play).
+                       ⚠ site/index.html + site/it/index.html are GENERATED — edit
+                       site_src/template.html + the strings in tools/build_site.py, then run
+                       `python3 tools/build_site.py` (writes both pages; they carry a GENERATED marker).
+                       Deploy: npx wrangler pages deploy site --project-name=scopa-spectrum --branch=main.
   DEVLOG.md            chronological build log.   DEVELOPMENT.md  this file.   RULES.md  rules & scoring.
 ```
 
@@ -82,7 +86,8 @@ Spec source (DO NOT ship from here — reference only): `/Volumes/SSD1/code/scop
                0x4000 at boot), THEN this region is reused as the SHADOW BUFFER (bitmap 0x6000,
                attrs 0x7800) — render here, then delta-blit to 0x4000. (The tape's loading.zx0
                also decodes through here at load time.)
-0x8000-~0xB4CE code (grows up) — ceiling is the state block @0xBA00 (~1.3 KB free)
+0x8000-~0xB44C code (grows up) — ceiling is the state block @0xBA00 (~1.4 KB free; another
+                 +1 KB on demand by sliding the state ORG to 0xBE00 — state+stack fit)
 0xBA00-~0xBC50 state vars (ORG 0xBA00; ~0x250B incl. the pre-allocated minimax node frames)
 0xBFF0         stack (SP set at Start)
 0xC000-~0xE085 deck.zx0 (INCBIN, ZX0-compressed deck, 8408 B) + deck_index.bin (per-card stream
@@ -311,15 +316,23 @@ Toolchain: `mastery/tools/sjasmplus`; ZEsarUX 13.0 + `mastery/tools/zx_shot.py` 
 # regenerate art (only if references/params change):
 python tools/convert_deck.py      # -> deck.bin   (RUN FROM scopa/)
 python tools/make_screens.py      # -> title.scr, loading.scr
-# build (the --sym is REQUIRED -- see the note below):
+# build (ONE command -- assembles with --sym, packs tap + tzx):
+./build.sh
+# or by hand (the --sym is REQUIRED -- see the note below):
 sjasmplus scopa.asm --sym=scopa.sym   # -> scopa.sna + scopa_code.bin + a FRESH scopa.sym
-python build_tap.py                    # -> scopa.tap  (reads scopa.sym for dzx0 / TapeFlag)
+python build_tap.py                    # -> scopa.tap  (reads scopa.sym for dzx0/TapeFlag/WinZX0)
 python build_tzx.py                    # -> scopa.tzx
 ```
 ⚠️ **Always pass `--sym=scopa.sym`.** Plain `sjasmplus scopa.asm` does NOT rewrite the `.sym`, so
 build_tap.py would silently read a STALE `scopa.sym` (it pulls `dzx0_standard` + `TapeFlag` from it).
-Harmless only while those addresses sit still -- any state-layout change moves `TapeFlag` and the loader's
-poke lands at the wrong address.
+build_tap.py now REFUSES stale inputs (mtime guard) and asserts every tape region fits its
+neighbours (deck<decoder<cache, titles<0x8000, win<0x10000, loader<=256B) -- a worse-compressing
+asset fails the build instead of silently corrupting memory on the real machine.
+
+**TESTMODE mailboxes** (headless verify via zx_shot read_mem): results land in the 0x7Exx scratch —
+0x7E00-04 = the TM70 AI board-injection probe (CMD/slot/opt/tablen/capsel), 0x7E0B-0D = TM37
+match-sim tallies, 0x7E10-12 = TM38 card-count checks, 0x7E20-22 = FASTSIM SimMixed per-side
+difficulty. 0x7E00-01 aliases DeltaBlit's DBattr scratch — fine for non-rendering probes only.
 `TESTMODE` builds run a scripted scenario instead of the game, for headless verify via
 read_mem / screenshot. NOTE the define syntax is `-DTESTMODE=N` (the `--define=…` long form
 errors "missing define value"):
@@ -365,8 +378,9 @@ polled then) — can't auto-drive a full round. CRT is ground truth.
 - **CURRENT (2026-06-24, all LIVE both domains):** feature-complete + heavily CRT-polished. This
   session: in-browser **Qaop/JS emulator** live (keyboard verified); far-left demo card-flash bug
   fixed (stale Removed in MakeRoom); win screen + all banners now **vblank-synced** attribute reveals;
-  banners ZX0-compressed (decode-on-show); new **PALLE DEL CANE** banner. Code ends ~0xB22F, state
-  @0xBA00 (~2 KB free). **DEVLOG.md is the authoritative chronology** — the historical "DONE
+  banners ZX0-compressed (decode-on-show); new **PALLE DEL CANE** banner. (Code-end/free-space
+  figures: see the §4 memory map, which is kept current — dated notes like this one age.)
+  **DEVLOG.md is the authoritative chronology** — the historical "DONE
   this/since" notes below are from the original build's earlier sessions and may name old addresses.
 - CRT play-test (Tony) = ground truth for: slide feel/smoothness, tear-free-ness, the new
   match-end screen, the compressed title, napola / palle del cane.

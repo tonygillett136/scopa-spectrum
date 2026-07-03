@@ -38,7 +38,6 @@ OScopa:   defs 1
 Who:      defs 1
 FCval:    defs 1
 CapSel:   defs 16
-CapN:     defs 1
 Played:   defs 1
 Cursor:   defs 1
 LastCap:  defs 1
@@ -393,8 +392,10 @@ Start:
     ENDIF
     IF TESTMODE == 50
     ; ace-SWEEP tear test: 6-card table + asso piglia tutto, player's ace takes the lot.
-    ; Removed = 6 -> the ZipCompact full-sweep branch clears the band BEHIND the beam.
-    ; Expect: all 6 cards vanish cleanly (no tear ~3/4 down), table ends empty, no hang.
+    ; Removed = 6 -> RemoveCascade peels the taken cards one per 3 frames, ahead of the beam.
+    ; Expect: all 6 cards vanish cleanly (no tear), table ends empty, no hang.
+    ; NOTE: the full run (flash + hold + SCOPA banner + cascade) takes ~10s after load --
+    ; read TableN only after ~12s+ (a 6s read lands mid-animation and looks like a failure).
     ld a,1
     ld (AceRule),a               ; asso piglia tutto ON
     ld hl,Table
@@ -737,7 +738,9 @@ Start:
     IF TESTMODE == 70
     ; ---- AI board-injection probe (host-driven via tools/ai_zx_check.py) ----
     ; Python pokes a full mid-game state (Table/TableN, Opp hand, OPile/OPileN, Seen, Difficulty=3,
-    ; DeckPos<40, AceRule) then writes 0x7E00=1 to request a decision. We run the REAL aiSelectPlay
+    ; DeckPos<40, AceRule) then writes 0x7E00=1 to request a decision. We run the REAL aiSelectPlay.
+    ; NOTE: 0x7E00-01 aliases DeltaBlit's DBattr scratch -- harmless while this probe never renders,
+    ; but do NOT add PaintAll/DeltaBlit calls to the probe loop without moving the mailbox.
     ; and return 0x7E01=BestSlot, 0x7E02=BestOpt, 0x7E03=TableN, 0x7E04..=CapSel[] (captured-cell mask),
     ; then clear 0x7E00. Lets the host replay any flagged board through the shipped AI.
     ld hl,Opp
@@ -1090,7 +1093,7 @@ FM37:                            ; play one full match -> A = winner (0 = player
     ENDIF
     IF TESTMODE == 35
     ; re-pack hybrid SMOOTH path: 3-card table, cards 1&2 shifted right by 2 (narrow moving block).
-    ; ZipMoveSpan should give W<=18 -> smooth slice; ZipCompact should land them on 1,6,11.
+    ; ZipMoveSpan gives W<15 (the cp 15 glide threshold) -> smooth slice; lands on 1,6,11.
     call NewMatch
     call NewRound
     ld a,3
@@ -1112,8 +1115,9 @@ FM37:                            ; play one full match -> A = winner (0 = player
     jr .h35
     ENDIF
     IF TESTMODE == 36
-    ; re-pack hybrid SNAP path: 5-card table all shifted right by 5 (wide moving block).
-    ; ZipMoveSpan W=31 -> snap; ZipCompact should still land them on 1,6,11,16,21.
+    ; re-pack hybrid WIDE path: 5-card table all shifted right by 5 (wide moving block).
+    ; ZipMoveSpan W=31 >= the cp 15 threshold -> 4-col chunked reveal (was a full-blit snap
+    ; pre-R44); ZipCompact should still land them on 1,6,11,16,21.
     call NewMatch
     call NewRound
     ld a,5
@@ -1994,7 +1998,7 @@ WaitSpaceOrDemo:
 
 ; DemoOverlay: in attract/demo mode, a thin top banner telling the watcher how to take
 ; over. Drawn into the current render target (the shadow buffer during RenderShadow), so
-; Blit carries it onto the board with everything else. No-op outside the demo.
+; the next board redraw carries it onto the screen with everything else. No-op outside the demo.
 DemoOverlay:
     ld a,(DemoMode)
     or a
@@ -2055,6 +2059,17 @@ NewRound:
     ld (LastCap),a
     ld (NapShown),a              ; re-arm the napola celebration for the new round
     ld (PalleShown),a            ; re-arm the palle del cane celebration for the new round
+    ; sanitize the PER-PLAY flags: the abandon combos (DemoCheckSpace / CheckSoftReset /
+    ; CheckWinCheat) longjmp `ld sp,0xBFF0 / jp NewGame` from ANY Delay/SlideIn poll, so a flag
+    ; set mid-play leaks into the next game. Concretely: a stale RevealInPlace made every
+    ; non-crowded capture skip ShowCapture (lingering played card); a stale WavePlayed ghost-
+    ; flashed slot TableN on the next crowded wave; stale DropPreShift/Removed were masked only
+    ; by fragile per-path defaults (the R50 far-left flash was exactly a stale-Removed bug).
+    ld (DropPreShift),a
+    ld (RevealInPlace),a
+    ld (ChoiceMade),a
+    ld (WavePlayed),a
+    ld (Removed),a
     call InitDeck
     call Shuffle
     call DealRound
@@ -2450,6 +2465,10 @@ OppTurn:
 ; evaluates Player[] (HandPtr), slides from the bottom row, and routes the capture through the
 ; PLAYER path (Who=0) -- so its captured cards go to the player's pile. ResolvePlay's player path
 ; uses ChoiceMade/ChoiceVal (no human here), so we feed it the AI's chosen option (AIOpt).
+; KNOWN ASYMMETRY (demo-only, accepted): Seen[] marks the OPP hand as "own" (NewRound/DealHands),
+; so this player-side eval card-counts with the wrong perspective -- ThreatLive treats values in
+; Opp's actual hand as dead threats and its own hand as unseen. Invisible in the human game (the
+; real player never runs the AI); not worth the bytes to build a per-side Seen.
 DemoPlayerTurn:
     ld hl,Player
     ld (HandPtr),hl             ; AI evaluates the player's hand
@@ -2965,6 +2984,8 @@ SimUndo:
 
 ; LeafEval: both hands empty -> sweep remaining table to LastCap, score, return signed
 ; (RootWho points - other points) in A. Restores the bits ScoreRound/SweepToLast touch.
+; COUPLING: SweepToLast clobbers Who (sets it to LastCap); that's repaired by .domove's
+; `ld a,(ix+24) / ld (Who),a` on the way back up the search -- don't remove that reload.
 LeafEval:
     ld a,(TableN)
     ld (LfTN),a
@@ -4837,7 +4858,12 @@ BitMask:
     djnz .b
     ret
 
-; AddOption: append mask DE to Options[OptionN], cap 16
+; AddOption: append mask DE to Options[OptionN], cap 16.
+; The cap is safe in practice: duplicates can only enter the table from the 4-card deal (forced
+; single-capture prevents duplicate drops), so >16 same-sum subsets needs a pathological board
+; (e.g. 4 dealt aces + dropped 2..9); options 17+ would be silently unavailable, but a capture
+; still resolves. The same forced-single-capture argument bounds TableN <= 13, so Table/CapSel/
+; RmTab/TmpTable[16] and the ace-sweep mask math never overflow.
 AddOption:
     ld a,(OptionN)
     cp 16
@@ -5266,6 +5292,7 @@ PalleDelCane:
     ld c,36
     jp NapHas
 
+    IF TESTMODE != 0             ; test fixtures -- only TM 1/2 call these; keep them out of the shipped build
 ; P holds the four 7s (all suits -> primiera 84, settebello, 1 denari, 4 cards).
 ; O holds three aces of suits 0/1/2 (MISSING suit 3 -> primiera must be 0).
 ScoreTestSetup:
@@ -5319,6 +5346,7 @@ LastPlayTestSetup:
     ld a,40
     ld (DeckPos),a
     ret
+    ENDIF                        ; TESTMODE != 0 (test fixtures)
 
 ; =================== counts ===================
 CountOpp:
@@ -6837,7 +6865,6 @@ WaitEndOrDemo:
     or a
     jr nz,.go                    ; wait for release
     ret
-TriCol: defb 4,7,2,7             ; green, white, red, white
 
 StrScopa:  defb "S C O P A",0
 StrHdr:    defb "YOU   CPU",0
@@ -7146,21 +7173,8 @@ RenderShadow:
     call HighlightCursor
     ret
 
-; Blit: copy the shadow buffer (0x6000) to the display (0x4000). No clear of the
-; live screen, so the eye never sees a blank -> no flicker. HALT first so the copy
-; always starts at the top of the frame -> the wholesale-redraw seam is STABLE, not a
-; shimmer. (A full 6912-byte copy is ~2 frames, too big to fit the blanking interval;
-; the per-card slide below is what's genuinely tear-free.)
-Blit:
-    halt
-    ld hl,0x6000
-    ld de,0x4000
-    ld bc,6912
-    ldir
-    ret
-
 ; DeltaBlit: copy ONLY the character cells that changed from the shadow buffer (0x6000) to the
-; screen (0x4000), instead of the wholesale 6912-byte Blit (which is 2+ frames -> tears as the
+; screen (0x4000), instead of a wholesale 6912-byte copy (which is 2+ frames -> tears as the
 ; raster crosses it). Pass 1 diffs shadow vs screen (reads only -> invisible, runs before HALT);
 ; Pass 2, after HALT, copies just the dirty cells in raster order (bitmap+attr together per cell)
 ; -> small enough to stay ahead of the descending beam -> tear-free even at the top of the screen.
@@ -8627,11 +8641,13 @@ FunicTune:
     defb 27,8,2,  24,8,2,  25,1,6,  0,0,2               ; D5 B4 C5(dotted) rest
     defb 0xFF
 
+    IF TESTMODE != 0             ; engine pitch-check tune -- only TM13 plays it
 ; PlayScale: ascending C major (engine pitch check). HL -> ScaleTune.
 ScaleTune:                       ; bass muted, rests between notes -> isolated pure tones
     defb 13,0,4, 0,0,2, 15,0,4, 0,0,2, 17,0,4, 0,0,2, 18,0,4, 0,0,2
     defb 20,0,4, 0,0,2, 22,0,4, 0,0,2, 24,0,4, 0,0,2, 25,0,6
     defb 0xFF
+    ENDIF                        ; TESTMODE != 0 (ScaleTune)
 
 ; PlayJingle: HL = jingle data -> play it with the 2-voice engine (interrupts off for
 ; timing, like the title music). Short event fanfares.
@@ -8759,39 +8775,6 @@ SlotAddr:                        ; A = slot index -> HL = CacheBase + A*384
 .sa:
     add hl,de
     djnz .sa
-    ret
-
-; WarmBoard: pre-decode every card currently on the board into the cache, at a NON-beam-critical
-; moment, so the subsequent tear-critical direct draws (deal cascade / slide / reveal) are all
-; cache HITS -> cycle-identical to scopa's proven tear-free blit. Clobbers AF,BC,DE,HL.
-WarmBoard:
-    ld hl,Player
-    ld b,3
-    call WarmArr
-    ld hl,Opp
-    ld b,3
-    call WarmArr
-    ld a,(TableN)
-    or a
-    jr z,.nt
-    ld hl,Table
-    ld b,a
-    call WarmArr
-.nt:
-    ld a,40                      ; BACK (opponent hand shows backs)
-    jp DecodeCardA               ; tail-call (warms BACK, returns)
-WarmArr:                         ; HL = id array, B = count -> warm each non-0xFF into the cache
-    ld a,(hl)
-    inc hl
-    cp 0xFF
-    jr z,.ws
-    push hl
-    push bc
-    call DecodeCardA
-    pop bc
-    pop hl
-.ws:
-    djnz WarmArr
     ret
 
     INCLUDE "dzx0_standard.asm"  ; 68B "Standard" ZX0 decoder (HL=src, DE=dst)
