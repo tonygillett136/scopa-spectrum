@@ -2196,6 +2196,8 @@ PlayerTurn:
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
     call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
+    ld b,1
+    call Delay                   ; A/B: hold on the flashed capture BEFORE erasing (beat moved here)
     ld a,(Cursor)                ; remove the played card from the hand (data)
     ld hl,Player
     call addHLA
@@ -2375,6 +2377,9 @@ OppTurn:
     ld hl,CaptureJingle
     call PlayJingle               ; the capture ding
     call FlashCaptureWave         ; bright/dim white flash across the captured cards + the revealed card
+    ld b,1
+    call Delay                    ; A/B: HOLD on the flashed capture BEFORE erasing (beat moved here from
+                                  ; RemoveCascade) -> played card + table cards then leave as one sweep
     ; Remove the revealed played card from the TOP slot FIRST, so it vanishes WITH the captured table
     ; cards (before the re-zip) instead of last after it (Tony's CRT). KEEP it tear-free (Tony: don't
     ; regress the attr-restore): the reveal + flash only touched the LIVE screen, so RenderShadow still
@@ -2489,6 +2494,8 @@ DemoPlayerTurn:
     ld hl,CaptureJingle
     call PlayJingle              ; the capture ding
     call FlashCaptureWave        ; bright/dim white flash across the captured cards + the in-hand card
+    ld b,1
+    call Delay                   ; A/B: hold on the flashed capture BEFORE erasing (beat moved here)
     xor a
     ld (HumanTurn),a
     ld a,(BestSlot)              ; remove the played card from the hand (data)
@@ -4509,8 +4516,11 @@ RemoveCascade:
     ld (ScrOfs),a                ; erase + redraw both target the live screen
     ld a,(RmN)
     ld (RmCut),a                 ; RmCut = RmN: nothing peeled yet (all to-remove indices < RmN)
-    ; brief solid beat before the sweep, then peel. (The software flash leaves the taken cards SOLID
-    ; white -- it sets no FLASH bit -- so the old hardware-FLASH "un-flash" loop over the band is gone.)
+    ; brief solid beat before the sweep -- for NON-crowded big captures only. The crowded paths now
+    ; HOLD before the in-hand erase, so skip the beat here when the played card was revealed in place.
+    ld a,(RevealInPlace)
+    or a
+    jr nz,.rcframe
     ld b,1
     call Delay
 .rcframe:
@@ -4532,12 +4542,12 @@ RemoveCascade:
     ld (Tmp0),a                  ; Tmp0 = 0: no neighbour redraw (default)
     ld a,(RmCut)
     or a
-    jr z,.rchalt                 ; M=0 -> no left neighbour
+    jr z,.rcwait                 ; M=0 -> no left neighbour
     dec a
     ld c,a                       ; M-1
     call IsToRemove
     or a
-    jr z,.rchalt                 ; M-1 is a survivor -> the shadow restores it; no redraw
+    jr z,.rcwait                 ; M-1 is a survivor -> the shadow restores it; no redraw
     ld a,1
     ld (Tmp0),a                  ; M-1 is another taken card -> redraw it this frame
     ld a,(RmCut)
@@ -4546,6 +4556,11 @@ RemoveCascade:
     call addHLA
     ld a,(hl)                    ; M-1 card id
     call DecodeCardA             ; pre-warm BEFORE the HALT -> the redraw BlitCard is a cache HIT
+.rcwait:
+    halt                         ; two extra wait frames -> the removal sweep peels ONE CARD PER
+    halt                         ; 3 FRAMES (60ms/card PAL; Tony CRT-tuned: 1 too fast, 4 too slow).
+                                 ; Every per-card path passes through here (the two jumps land here;
+                                 ; the neighbour-redraw path falls through).
 .rchalt:
     halt                         ; the screen writes below land in the top border, ahead of the beam
     ld a,(RmCut)
