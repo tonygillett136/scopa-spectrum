@@ -1367,3 +1367,20 @@ theoretical rate** (1 - (36*32*28)/(39*38*37) = 0.412); 2000 chained deals = 40.
 ~2 deals in 5 do contain a pair. Why it's missed: a same-value pair is always two DIFFERENT suits (unique
 deck -> no two identical cards), which don't read as "a pair" at a glance in a fast demo. Perception, not
 code (same family as the "player wins more" variance hunch). Nothing to fix.
+
+## Capture-removal timing rework (2026-06-30, branch capture-timing -> main, Tony CRT-tuned)
+Tony questioned the crowded-capture removal ORDER: it went flash -> erase the in-hand card -> PAUSE ->
+sweep the table cards, splitting one capture into two separated events (and the "beat" was holding on a
+half-removed board). Reordered to flash -> HOLD -> erase in-hand + table sweep as ONE continuous removal:
+the `ld b,1 / Delay` beat moved from the top of RemoveCascade to BEFORE the in-hand EraseCardRegion in all
+three crowded paths (OppTurn / PlayerTurn / DemoPlayerTurn); RemoveCascade's own beat is now skipped when
+RevealInPlace=1 (kept for non-crowded big captures, which have no in-hand erase). SWEEP SPEED: Tony A/B'd
+the card-by-card RemoveCascade peel on the CRT -- 1 frame/card (original) too fast, 4 frames/card too slow,
+settled on **3 frames/card (60ms/card PAL)** via two extra halts at .rcwait, placed so EVERY per-card path
+passes through them (the two jumps land there; the neighbour-redraw path falls through -- a single-path
+halt would have made consecutive-taken-card peels faster than the rest). Coverage: RemoveCascade is the
+ONLY card-by-card removal (all Removed>=3 captures); 1-2-card removals are a single-frame delta vanish,
+unchanged. Verified per iteration: clean build, demo advances + coherent, 3->0 multi-card sweep observed.
+NOTE: TESTMODE 50 is bit-rotted (its direct ResolvePlay call no longer fires the sweep; fails identically
+on the pre-change build -- its comment still references the removed ZipCompact behind-the-beam clear).
+Future tidy, not a regression.

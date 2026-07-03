@@ -4557,9 +4557,10 @@ RemoveCascade:
     ld a,(hl)                    ; M-1 card id
     call DecodeCardA             ; pre-warm BEFORE the HALT -> the redraw BlitCard is a cache HIT
 .rcwait:
-    halt                         ; A/B round 2: three extra wait frames -> QUARTER-SPEED removal
-    halt                         ; sweep (4 frames/card = 80ms/card PAL). Every per-card path passes
-    halt                         ; through here (the two jumps land here; the redraw path falls through).
+    halt                         ; two extra wait frames -> the removal sweep peels ONE CARD PER
+    halt                         ; 3 FRAMES (60ms/card PAL; Tony CRT-tuned: 1 too fast, 4 too slow).
+                                 ; Every per-card path passes through here (the two jumps land here;
+                                 ; the neighbour-redraw path falls through).
 .rchalt:
     halt                         ; the screen writes below land in the top border, ahead of the beam
     ld a,(RmCut)
