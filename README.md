@@ -81,6 +81,55 @@ The base weights aren't guesses: they were **self-play tuned** with `tools/ai_tu
 simulator that plays tens of thousands of games to search the weight space (only changes that
 reproduced across independent runs were kept).
 
+## How this was made
+
+The short version: a human who grew up on this machine, and an AI coding partner
+([Claude Code](https://claude.com/claude-code)), in a division of labour neither could manage
+alone. The AI wrote and debugged every byte of the Z80; the human made every design call — and
+was the only one of the pair with eyes on a CRT.
+
+The longer version is a process, and it ran in five acts:
+
+**1. Study the masters.** Before a line of Scopa existed, we learned the machine the hard way
+round: reading the classic Spectrum programming canon, then going past the books to the primary
+sources — disassembling the greats (*Manic Miner*, *Jet Set Willy*, *Knight Lore*, *Alien 8*,
+*Skool Daze*…) to work out exactly how they achieved smooth, flicker-free movement on a machine
+with no hardware sprites and no double buffer. Those dives became a private catalogue of
+techniques — save-under buffers, delta blits, racing the raster beam, contention-aware cycle
+budgets — and that catalogue is all over this game. (The research corpus lives outside this
+repo; its fingerprints are in every animation in `scopa.asm`.)
+
+**2. Build the laboratory.** The AI can't reach a Spectrum, so it built itself one: it drives
+the ZEsarUX emulator headlessly over its remote-control protocol — assemble, load the tape,
+inject a scenario straight into memory, run, then read the screen and the game state back, byte
+by byte, to check its own work. The game carries a battery of scripted `TESTMODE` scenarios
+(rules edge cases, AI decisions, animation timing) that are verified this way, unattended.
+
+**3. Recreate the game.** Art first — the 40 Neapolitan cards, traced from photographs of a
+physical deck into monochrome that respects the Spectrum's 8×8 attribute cells — then the rules
+engine, the scoring, the AI opponent, two-voice *Funiculì, Funiculà* on a one-bit speaker, the
+animations, the tape loader.
+
+**4. Let the CRT be the judge.** Every significant build went to real hardware and a CRT
+television, and the CRT kept catching what no emulator shows: animation tearing ("horizontal
+blinds") that a perfect-framerate emulator hides; a one-pixel flashing sliver at the screen's
+left edge caused by the ULA's attribute-latch bleed — a genuine hardware artefact no emulator
+reproduced; a mid-load pause that desynced real streaming tape players. Fifty-plus refinement
+rounds ran on this loop: the AI builds and verifies everything it possibly can, the human
+reports back from the glass, and nothing counts as fixed until the CRT says so.
+
+**5. Prove it, don't feel it.** Claims got tests. The opponent's weights were self-play tuned
+(above); a watchdog harness then watched the shipped logic play itself across whole matches,
+flagging any move a stronger analysis could beat — and every flagged decision was replayed
+through the real Z80 code in the emulator to confirm the finding wasn't a harness artefact
+(14 out of 14 identical). Deal fairness was proven by exhausting all 8,192 possible RNG seeds.
+Even "the player seems to win more often than the computer" was settled properly — with a
+40,000-match simulation (it was variance).
+
+The blow-by-blow of all of it — every bug, every dead end, every CRT verdict — is in
+[`DEVLOG.md`](DEVLOG.md). The essay-length telling of the story is [`ARTICLE.md`](ARTICLE.md),
+and the AI research is written up in [`AI_ANALYSIS.md`](AI_ANALYSIS.md).
+
 ## Building
 
 Requires [sjasmplus](https://github.com/z00m128/sjasmplus) and Python 3 (with Pillow, only if
