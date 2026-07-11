@@ -2,6 +2,8 @@
 
 ### Rebuilding a lost ZX Spectrum game in Z80 machine code, with an AI as my coding partner
 
+*Disponibile anche in italiano: [ARTICLE.it.md](ARTICLE.it.md).*
+
 ---
 
 Years ago, a friend of mine — Angelo Colucci — wrote a version of the Italian card game *Scopa* for the Sinclair ZX Spectrum. What I remember most are the cards. He'd drawn them by hand, and on that little rubber-keyed machine from 1982 they looked wonderful: the knights and kings of the Neapolitan deck, rendered in defiant detail on a screen that gave you 256×192 pixels and, frankly, attitude.

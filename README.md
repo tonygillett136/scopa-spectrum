@@ -175,6 +175,6 @@ deck.
 | `RULES.md` | The rules & scoring system **as implemented** (categories, Primiera/Napola values, variant choices) |
 | `DEVELOPMENT.md` | Architecture / memory map / build / gotchas reference |
 | `DEVLOG.md` | Chronological build log |
-| `ARTICLE.md` | Write-up of how the game was built |
+| `ARTICLE.md` | Write-up of how the game was built (anche in italiano: `ARTICLE.it.md`) |
 
 Built and tuned against real hardware on a CRT.
