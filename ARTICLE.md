@@ -1,4 +1,4 @@
-# The Card Game That Disappeared — and the One-Day Resurrection
+# The Card Game That Disappeared — and How We Brought It Back
 
 ### Rebuilding a lost ZX Spectrum game in Z80 machine code, with an AI as my coding partner
 
@@ -6,9 +6,11 @@
 
 Years ago, a friend of mine — Angelo Colucci — wrote a version of the Italian card game *Scopa* for the Sinclair ZX Spectrum. What I remember most are the cards. He'd drawn them by hand, and on that little rubber-keyed machine from 1982 they looked wonderful: the knights and kings of the Neapolitan deck, rendered in defiant detail on a screen that gave you 256×192 pixels and, frankly, attitude.
 
-Then, as these things do, the game slipped away. Tapes degrade. Boxes get lost in house moves. One day it was simply gone — a small, private piece of computing history, unbacked-up and unrecoverable.
+Then, as these things do, the game slipped away. Tapes degrade. Boxes get lost in house moves. I searched every cassette I'd managed to save from childhood; friends in the Italian Spectrum community kindly circulated an appeal. Nothing. It was simply gone — a small, private piece of computing history, unbacked-up and unrecoverable.
 
-I'd always wanted to bring it back. Last week I finally did — **in a single day** — with an unlikely collaborator: an AI.
+I'd always wanted to bring it back. This summer I finally did, with an unlikely collaborator: an AI.
+
+The first playable version came together in a single, giddy day. Making it *right* — making it something Angelo's original deserved — took another month. And that month, it turns out, is where the real story lives.
 
 This is the story of how that worked, why it was harder than it sounds, and what it taught me about the strange new division of labour between a human who remembers a machine and a machine that has read everything ever written about it.
 
@@ -31,17 +33,29 @@ The answer, it turns out, is yes — with one fascinating limitation I'll come b
 
 ---
 
+## Homework first: studying the masters
+
+We didn't start with the game. We started with the classics.
+
+Before a line of Scopa existed, the AI and I did the homework: reading through the Spectrum programming canon — the books every bedroom coder of the era hoarded — and then going past the books to the primary sources. We **disassembled the greats**: *Manic Miner*, *Jet Set Willy*, *Knight Lore*, *Alien 8*, *Skool Daze*. Not to copy anything, but to answer one question properly: how did they get smooth, flicker-free movement out of a machine with no hardware sprites, no double buffer, and no help?
+
+The answers became a catalogue of techniques — save the background under a sprite before you draw it; redraw only the bytes that changed; race the television's electron beam down the screen so it never catches you mid-draw; count your budget in CPU cycles per scanline. That catalogue is all over the finished game. When a card slides across the felt without a flicker, somewhere in there is a trick learned from watching the sprites of *Skool Daze* glide through their classrooms.
+
+If you want to build something worthy of the machine, it turns out, you start the way we would have started in 1983: by peering at how the best people did it.
+
+---
+
 ## How the collaboration actually worked
 
 I want to be honest about the shape of this, because it's the most interesting part.
 
-I didn't type "make me a Spectrum card game" and walk away. And the AI — I was working with Claude — didn't just spit out a finished program. It was a real collaboration, and we each did what we were good at.
+I didn't type "make me a Spectrum card game" and walk away. And the AI — I was working with Anthropic's Claude Code — didn't just spit out a finished program. It was a real collaboration, and we each did what we were good at.
 
-**The AI was the hands.** It wrote the Z80 assembly. It knew the screen layout, the timing of every instruction, the keyboard matrix, the contention quirks. It assembled the code, ran it in an emulator it drove itself, took screenshots, read back the machine's memory to check its own work, and debugged. Tirelessly. At three in the afternoon and again at midnight, with exactly the same patience.
+**The AI was the hands.** It wrote the Z80 assembly — some 8,800 lines of it. It knew the screen layout, the timing of every instruction, the keyboard matrix, the contention quirks. It assembled the code, ran it in an emulator it drove itself, took screenshots, read back the machine's memory to check its own work, and debugged. Tirelessly. At three in the afternoon and again at midnight, with exactly the same patience.
 
 **I was the senses and the taste.** I made the decisions — match to 11, a strong AI opponent, cards faithful to Angelo's Neapolitan deck. And crucially, *I* was the one with a real Spectrum and a CRT television. I was the eyes that could see whether the colours sang and the ears that could hear whether the music was any good.
 
-That last point matters more than you'd think, and it produced some of the best comedy of the whole day.
+That last point matters more than you'd think, and it produced some of the best comedy of the whole project.
 
 ---
 
@@ -87,6 +101,18 @@ I pressed play. A clean, cheerful, unmistakably Italian *Funiculì, Funiculà* c
 
 ---
 
+## The opponent that counts cards
+
+A card game lives or dies by its opponent, and I wanted one worth beating. The finished game has four levels, and the top one — *Esperto* — does something I'm genuinely proud of.
+
+It counts cards. It remembers every card that's been played, all game long — and the moment the deck runs out, that bookkeeping becomes X-ray vision. The cards it hasn't seen *must* be the ones in your hand; there's nowhere else for them to be. So for the final tricks it stops guessing and *searches*, playing out every possible line to the end of the deal — a proper alpha-beta minimax, the algorithm inside chess engines, running on a 3.5 MHz Z80. It plays the endgame perfectly. In head-to-head testing it beats the next level down in nearly three-quarters of matches.
+
+And it plays **fair** — we went to some lengths to prove that, because feelings are not evidence. The AI never peeks at your hand or the deck; Esperto's endgame "knowledge" is a deduction any human card-counter could legitimately make. When I became suspicious that the player seemed to win more often than the computer, we didn't shrug — we ran a **forty-thousand-match simulation**. (It was variance. I owed the machine an apology.) When I realised I'd never once seen the opening deal put two cards of the same value on the table, we exhaustively tested **all 8,192 possible shuffle seeds**. (It happens 41% of the time; I just hadn't been paying attention.) And near the end, the AI built a watchdog that made the shipped game logic play itself for match after match, flagging any move a deeper analysis could beat — then replayed every flagged decision through the real Z80 code, in the emulator, to prove the findings weren't an artefact of the test harness.
+
+That's what quality looks like when one of the collaborators never gets bored.
+
+---
+
 ## The thing an AI cannot do — and why that's the point
 
 Throughout all of this ran a beautiful limitation: **the AI cannot see a CRT or hear a speaker.**
@@ -95,7 +121,19 @@ It can build the program. It can run it in an emulator and read the screen out o
 
 I can. And so the whole project found a natural rhythm: the AI would build and verify everything it possibly could on its own, then hand me something to *witness* on the real hardware — and I'd come back with "the cat's gone, but it's too fast," or "the laid card gets a bit lost when the table's crowded." It would dig in, find the cause, and fix it.
 
-That's not a weakness of the AI. It's the **shape of a good partnership.** It has read everything and forgets nothing and never tires; I have a body in a room with a 1982 computer humming in the corner. Between us, we had every sense the job required.
+More than fifty numbered refinement rounds ran on that loop, and the television kept catching what the emulator never could. Animations that were mathematically correct showed "horizontal blinds" on the glass — the redraw racing the TV's electron beam and losing — until every transition in the game was rebuilt to be beam-synced and tear-free. A loading-screen flourish that looked lovely in the emulator derailed real tape players, which stream on regardless of whether the Spectrum is ready. And then there was my favourite bug of the entire project.
+
+---
+
+## The one-pixel ghost
+
+Late in development, my real Spectrum showed me something impossible.
+
+Whenever the rightmost card on the table flashed, a sliver — one pixel wide, a full card tall — flashed in perfect sync at the **far left edge of the screen**, the opposite side from anything that was happening. The AI checked the emulator: nothing. It read the screen memory back byte by byte: the left column was untouched, provably clean. The program was perfect. The glass disagreed.
+
+The cause turned out to be real silicon behaviour. The Spectrum's video chip latches the colour attribute it used at the right-hand edge of a scanline, and under the right conditions that latched colour bleeds into the left-hand edge of the lines that follow. Draw a flashing card in the last column and its colour *escapes around the edge of the screen*. No emulator we used models it. The fix was almost poetic: the rightmost card position now stops one cell short, so the final column of every line is permanently green felt — and the ghost has nothing to smuggle round the back.
+
+I love this bug because it's the whole project in miniature. The AI could write the code, run it, and verify the memory was flawless — and only a human, in a room, with forty-year-old hardware plugged into a television, could see that it wasn't.
 
 ---
 
@@ -111,16 +149,16 @@ That's the bit that turns a clever demo into something you'd actually trust to k
 
 ---
 
-## A day's work, forty years late
+## Forty years late
 
-By the end of the day there was a complete, polished game: faithful hand-traced cards, a strong AI opponent with difficulty levels, flicker-free graphics, tear-free animations, two-part music, a how-to-play screen, all the rules — including the regional Neapolitan ones — scored correctly. It boots from a virtual tape, exactly as it would have in 1983, and on the title screen it reads: *"Based on an original ZX Spectrum game by Angelo Colucci."*
+What exists now is a complete, polished game: faithful hand-traced cards, a four-level opponent that ends in a card-counting endgame solver, flicker-free and tear-free animation throughout, two-part music, an attract mode, and all the rules — including the regional Neapolitan ones — scored correctly. It boots from a real tape, exactly as it would have in 1983, and on the title screen it reads: *"Based on an original ZX Spectrum game by Angelo Colucci."*
 
-I keep coming back to the fact that this took **a single day.** Not because the AI is magic — it made mistakes, some of them funny, and it needed a human in the loop at every turn. But because the friction of an arcane, unfashionable, four-decades-dead domain — the kind of project that would once have meant weeks of squinting at hex dumps — had almost completely melted away. The knowledge was instantly available. The iteration was instant. The only slow part left was *me*, walking over to the television to look.
+The first version took a day, and I keep coming back to that. But the truer number is the month that followed — the fifty-odd rounds of refinement, most of them ending with me walking over to the television to look. Not because the AI is magic: it made mistakes, some of them funny, and it needed a human in the loop at every turn. But the friction of an arcane, unfashionable, four-decades-dead domain — the kind of project that would once have meant weeks of squinting at hex dumps — had almost completely melted away. The knowledge was instantly available. The iteration was instant. The only slow parts left were the two irreplaceable ones: deciding what *right* meant, and looking at the glass to see whether we'd got there.
 
 We tend to talk about AI in terms of the big, obvious things. What struck me, doing this, is how well it turns its hand to the small, *strange* corners — the Z80's quirks, a one-bit speaker, a screen designed by a sadist. The places where the knowledge is real but rare, and the patience required is more than human.
 
-Angelo's cards are back on the screen. And somewhere in there, a routine with his name on it is quietly making room for them.
+Angelo's cards are back on the screen. And the memory trick pioneered by a routine with his name on it is still, quietly, making room for them.
 
 ---
 
-*The game runs on a real, unmodified 48K ZX Spectrum, written in Z80 machine code. If you'd like to play it, [link to the tape file].*
+*The game runs on a real, unmodified 48K ZX Spectrum, written entirely in Z80 machine code. Play it in your browser, or download the tape for an emulator or the real thing, at **[scopa-spectrum.gillett-projects.com](https://scopa-spectrum.gillett-projects.com)** (in English and Italian). The full source — and the development log, bugs and all — is at [github.com/tonygillett136/scopa-spectrum](https://github.com/tonygillett136/scopa-spectrum).*
