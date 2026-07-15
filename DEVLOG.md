@@ -1440,3 +1440,27 @@ Verified: clean build, 10 TESTMODEs spot-assembled, flag-injection test, ai_watc
 new weights module, staleness guard trips on a stale sym and passes on a fresh one, 60s demo advancing.
 tap 35,611B (was 35,766). Branch pushed for Tony's merge call -- the game binary changes (flag fix + dead
 code), so the usual CRT pass applies before it ships.
+
+## Scoreboard polish: bonus-row green highlights + black border (2026-07-15, Tony CRT-spotted)
+
+Two Tony niggles from the scores screen, both confirmed in source and fixed:
+
+**(a) Neapolitan/Palle numbers never went green.** HighlightWinners only looped the five CatWin
+categories (rows 6-14); the NEAPOLITAN (row 15) and PALLE CANE (row 16) rows were printed after
+the loop and stayed white however they scored. Both bonuses are inherently one-sided (only one
+pile can hold coins A+2+3, or all four 7s), so the fix greens whichever side is non-zero -- no
+tie case. Shared `.side` helper keeps it ~40 bytes.
+
+**(b) The scoreboard kept the table's cyan border.** ShowResults never touched the border; the
+cyan leaked from NewMatch ("cyan border for the game proper") because nothing between rounds
+re-set it. Every other non-table screen (title/menu/win/lose) frames in black -- the scoreboard
+was the only leak. Fix: ShowResults now sets border+BorderC black right after its WipeBlackSync;
+the cyan set MOVED from NewMatch to DealCascade immediately after the FlipShadowSync scene cut,
+so the border turns cyan at the exact moment the felt appears (previously the border went cyan
+at match start, a beat before the scene cut -- with a black scoreboard that would have flashed).
+
+TM24 enriched to seed Pnapola=3/Opalle=1: verified attrs 0x44 at (15,15)+(21,16), neighbours
+still 0x07, BorderC=0, black-border screenshot. TM23 demo soak: BorderC cycles 5 (97s of play)
+-> 0 (scores hold) -> 5 (round-2 felt), screenshots clean both sides. Shipping build: title ->
+menu -> Easy -> deal shows the cyan felt (the NewMatch move holds on the real entry path).
+tap 35,661B. CRT-pending: the black-framed scoreboard + green bonus numbers.

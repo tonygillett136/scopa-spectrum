@@ -998,10 +998,19 @@ Start:
     ENDIF
     IF TESTMODE == 24
     ; render the per-round ShowResults grid in demo mode -> verify the "PRESS SPACE TO PLAY"
-    ; prompt under the scoring grid, then hold via the demo wait.
+    ; prompt under the scoring grid, then hold via the demo wait. Also seeds the one-sided
+    ; bonus rows: player napola 3 + CPU palle 1 -> their numbers must glow green (0x44 at
+    ; (15,15) and (21,16)), and the border/BorderC must be BLACK (scores screen owns it now).
     ld a,1
     ld (DemoMode),a
     call NewMatch
+    ld a,3
+    ld (Pnapola),a
+    xor a
+    ld (Onapola),a
+    ld (Ppalle),a
+    ld a,1
+    ld (Opalle),a
     call ShowResults
     call WaitSpaceOrDemo
 .h24:
@@ -2036,10 +2045,8 @@ DemoOverlay:
     jp PrintStr
 StrDemoPrompt: defb "PRESS SPACE TO PLAY",0
 
-NewMatch:
-    ld a,5
-    out (254),a                  ; cyan border for the game proper
-    ld (BorderC),a
+NewMatch:                        ; (the cyan game border is set at the DealCascade scene cut,
+                                 ;  when the felt actually appears -- not here)
     xor a
     ld (PMatch),a
     ld (OMatch),a
@@ -6151,6 +6158,9 @@ FillAttrRow:
 
 ShowResults:
     call WipeBlackSync           ; wipe the previous screen to black (synced)
+    xor a
+    out (254),a                  ; black border: every non-table screen frames in black
+    ld (BorderC),a
     ld a,0x20
     ld (AttrOfs),a               ; colours -> 0x7800 buffer; the scores draw invisibly, reveal at the end
     call ClsBlack
@@ -6340,14 +6350,16 @@ ShowResults:
     ret
 
 ; HighlightWinners: for the 5 scored categories (CatWin 0..4 at rows 6,8,10,12,14) colour
-; the winning side's 2-digit number bright green. Tie -> left white.
+; the winning side's 2-digit number bright green. Tie -> left white. Then the napola (row 15)
+; and palle del cane (row 16) rows: those are one-sided (only one pile can hold coins A+2+3,
+; or all four 7s), so whichever side is non-zero gets the green.
 HighlightWinners:
     xor a
     ld (Tmp0),a                  ; category index 0..4
 .hw:
     ld a,(Tmp0)
     cp 5
-    ret nc
+    jr nc,.bonus
     ld hl,CatWin
     call addHLA
     ld a,(hl)                    ; 0=player, 1=opp, 2=tie
@@ -6368,6 +6380,24 @@ HighlightWinners:
     ld hl,Tmp0
     inc (hl)
     jr .hw
+.bonus:
+    ld hl,Pnapola
+    ld de,0x0F0F                 ; D=col 15 (player), E=row 15 (NEAPOLITAN)
+    call .side
+    ld hl,Onapola
+    ld de,0x150F                 ; D=col 21 (opp)
+    call .side
+    ld hl,Ppalle
+    ld de,0x0F10                 ; row 16 (PALLE CANE)
+    call .side
+    ld hl,Opalle
+    ld de,0x1510                 ; falls through: .side's ret ends HighlightWinners
+.side:
+    ld a,(hl)
+    or a
+    ret z                        ; 0 -> not scored -> stays white
+    ld bc,0x0244
+    jp SetCellAttr
 
 ; SetCellAttr: D=col, E=row, B=count, C=attr -> paint B attribute cells.
 SetCellAttr:
@@ -7034,6 +7064,9 @@ DealCascade:                     ; round start: empty board (scene cut), then de
     call BlankFF                 ; TableN unchanged -> fixed 4-card layout; render skips 0xFF
     call RenderShadow            ; build the empty felt in the shadow...
     call FlipShadowSync          ; ...then wipe the old screen + reveal it vblank-synced (no blinds)
+    ld a,5
+    out (254),a                  ; felt revealed -> cyan border for the game proper
+    ld (BorderC),a
     call RevealHands
     jp RevealTable
 
