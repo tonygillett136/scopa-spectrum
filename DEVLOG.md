@@ -1441,6 +1441,25 @@ new weights module, staleness guard trips on a stale sym and passes on a fresh o
 tap 35,611B (was 35,766). Branch pushed for Tony's merge call -- the game binary changes (flag fix + dead
 code), so the usual CRT pass applies before it ships.
 
+## Docs for the announcement (2026-07-11, no code change)
+
+Prep for announcing the game to the ZX Spectrum Italia community: the repo is about to get real
+visitors, so the process story had to actually be *in* the repo. Audit found the gap — iteration
+was documented (this file), collaboration was documented (ARTICLE.md), but the study-the-classics
+phase lived only outside the repo. Three commits:
+
+- **README "How this was made"** (130ea86): the five-act process — study the masters (book canon
+  + disassembling Manic Miner/JSW/Knight Lore/Alien 8/Skool Daze), build the laboratory (headless
+  ZEsarUX + TESTMODEs), recreate the game, let the CRT be the judge, prove it don't feel it.
+- **ARTICLE.md fresh pass** (e4195bd): honest timeline ("first playable in a day; making it
+  *right* took the month, and that's where the story lives"), four new chapters (studying the
+  masters, the card-counting opponent, the one-pixel ghost, the rewritten close), placeholder
+  links replaced with the live site + repo.
+- **ARTICLE.it.md** (5e8815c): full idiomatic Italian translation + cross-links both ways.
+
+Also translated the Facebook post + repo blurb for the group announcement (delivered outside the
+repo).
+
 ## Scoreboard polish: bonus-row green highlights + black border (2026-07-15, Tony CRT-spotted)
 
 Two Tony niggles from the scores screen, both confirmed in source and fixed:
@@ -1464,3 +1483,31 @@ still 0x07, BorderC=0, black-border screenshot. TM23 demo soak: BorderC cycles 5
 -> 0 (scores hold) -> 5 (round-2 felt), screenshots clean both sides. Shipping build: title ->
 menu -> Easy -> deal shows the cyan felt (the NewMatch move holds on the real entry path).
 tap 35,661B. CRT-pending: the black-framed scoreboard + green bonus numbers.
+
+## The AI case file: two demo suspicions investigated + AI_ANALYSIS §9 + Italian (2026-07-15, no code change)
+
+Two more "that looked odd" plays from Tony watching the demo, both run to ground with the
+verified host mirror (`ai_watch.ai_select`) and the Z80 source:
+
+**Ace played from a two-ace hand (asso on — the demo config).** Correct, decisively. On any
+non-empty table the ace-sweep is the top-scoring play by a mile (23 vs −29 for the alternative
+drop on a representative board); a second ace makes it better (opponent forced to drop onto the
+empty table, second ace harvests the drop); and there's no "saving it" — all three hand cards
+play before the redeal. Bonus finding: on an EMPTY table the eval will deliberately drop an ace
+as sweep-armour (an ace on the table means the opponent's ace can only take that ace, not sweep)
+— but only when the alternative drops are risky; given a face card it drops the face.
+
+**2 of denari dropped while holding a plain 2.** The mid-game policy provably cannot do this —
+DROP_DENARI −4 and value-identical safety mean the plain two wins strictly (verified in BOTH the
+mirror and the Z80 EvalDrop source). So it was the deck-empty Esperto minimax: with the opponent
+hand fully deduced, a coin drop is tie-optimal when it provably can't be punished (the coin comes
+back via recapture or the end-of-round sweep), and ties break by enumeration order, not optics.
+Standing offer: if ever seen with the deck NOT empty, capture the board — TESTMODE 70 would make
+that a real find.
+
+Both cases (and the five older ones) written up as **AI_ANALYSIS.md §9** — the emergent doctrine
+(coin discipline, the ace doctrine, drop hierarchy, counted sweep-avoidance, the minimax switch
+and why its ties look arbitrary) plus the case file table (score: machine 6, humans 1) and a
+verbatim-verified mirror-probe snippet. README's AI section points to it. **AI_ANALYSIS.it.md**:
+full Italian translation of the whole audit (all nine sections), ARTICLE-style cross-links.
+Commits 9a47851 + 7863278.
