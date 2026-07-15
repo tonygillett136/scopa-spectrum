@@ -84,7 +84,7 @@ reproduced across independent runs were kept).
 Watching it play (say, in the attract demo) you'll see it do things that look wrong — throw an
 ace, drop a coin — that turn out to be right. Its table doctrine, and the case file of every
 "surely that's a bug" moment investigated (score so far: machine 6, humans 1), is written up in
-[`AI_ANALYSIS.md`](AI_ANALYSIS.md) §9.
+[`AI_ANALYSIS.md`](AI_ANALYSIS.md) §9 (anche in italiano: [`AI_ANALYSIS.it.md`](AI_ANALYSIS.it.md)).
 
 ## How this was made
 

@@ -1,5 +1,7 @@
 # Scopa AI — depth audit & conclusion (2026-06-18)
 
+*Disponibile anche in italiano: [AI_ANALYSIS.it.md](AI_ANALYSIS.it.md).*
+
 Triggered by a play Tony saw in the attract/demo: *two kings held, empty table, one the
 King of coins (Re di denari) — the AI played a king and it was swept by an ace. Shouldn't
 it keep the coin king and throw the non-coin one?* That one play prompted a broader question:
