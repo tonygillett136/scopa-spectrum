@@ -188,3 +188,100 @@ and the rare `PASSED_SCOPA` are the napola fix correctly completing a 3–5 poin
 marginal primiera/tempo blindness inherent to a 1-ply evaluator, and §4 already proved primiera-awareness
 HURTS (primiera is comparative/emergent over the whole deal). No new bug; the AI is sound; left as-is.
 Reusable: `python tools/ai_watch.py [matches]`, then `python tools/ai_zx_check.py` to Z80-confirm a flag.
+
+---
+
+## 9. Addendum — how it actually plays: emergent tactics, and the case file (2026-07-15)
+
+The evaluator is a dozen weighted terms (§2), but at the table those terms compose into a
+recognisable *doctrine* that was never explicitly programmed. Watching the attract demo you are
+watching that doctrine — and several of its habits look wrong at first sight while being right.
+This section writes the doctrine down, then lists every "that looked odd" moment ever raised
+against the AI, with the verdicts.
+
+### The doctrine
+
+**Coin discipline: bank with coins, shed non-coins.** A coin scores Denari only from your *pile*,
+and the only road from hand to pile is capturing with it. Between two equal-value cards the eval
+therefore always **captures with the coin first** (the played card's own +5 lands in the banked
+total) and **drops the plain one first** (`DROP_DENARI −4`). Holding a coin past a capture chance
+risks being forced to drop it later — gifting a Denari-point card to the opponent. So: the 2 of
+denari pair-captures while the 2 of spade waits; the 2 of spade gets thrown while the 2 of denari
+waits. Both orderings are the same principle.
+
+**The ace doctrine (asso piglia tutto on — the demo's configuration).** Under the house rule an
+ace is the strongest card in the hand, and the eval treats it that way:
+- *Any non-empty table:* the ace-sweep is nearly always the top-scoring play — it banks the whole
+  table and leaves the opponent facing an empty one, the safest possible leave. (Ace sweeps get
+  **no** +50 scopa credit — Scopa d'Assi sweeps score no point — so the choice is pure material.)
+  Holding a second ace makes it better, not worse: the opponent must now drop onto the empty
+  table, and the second ace harvests the drop. There is no "saving it for later" — all three hand
+  cards are played before the redeal; only the order is in question, and material says ace first.
+- *A lone ace on the table:* an ace takes it (re-arms your sweep threat, disarms theirs).
+- *Empty table, forced drop:* it will sometimes deliberately **drop an ace** — an ace sitting on
+  the table is sweep-armour, since the opponent's ace can then only capture that ace rather than
+  sweep whatever accumulates. It only does this when the alternative drops are themselves risky
+  (low, matchable); given a face card it drops the face and keeps both aces.
+- Coin discipline applies here too: the ace of *denari* sweeps first; a non-coin ace is the one
+  that gets dropped as armour.
+
+**The drop hierarchy.** Settebello −40 (near-never), any 7 −5 and any 6 −5 (the primiera ranks),
+any coin −4, faces (8/9/10) +3 — faces are the cheapest cards in the deck to lose: worst primiera
+rank, and unless they are coins they carry no point value at all.
+
+**Sweep-avoidance with real card counting.** Every leave is priced: a table summing ≤10 or
+matching a rank costs points — but Esperto's `ThreatLive` check means it never fears a threat it
+can *prove* dead (all four cards of that rank already seen). Under asso piglia tutto a leave is
+also priced for ace-sweep exposure — unless an ace lies on the table (armour, see above) or every
+ace is accounted for.
+
+**Concrete combos are valued, emergent ones are not.** The settebello (+35) and the napola
+completion (§7) are attributable to single captures, so the eval chases them. Carte, denari and
+primiera as *comparative totals* are emergent over ~18 plays and provably cannot be steered by a
+1-ply evaluator (§4–§6) — so it doesn't try.
+
+**The endgame switch.** The moment the deck empties, all of the above is retired and the position
+is handed to the exact minimax (§2). Two consequences for the spectator: the last hand is played
+*provably optimally*, and it may **look** arbitrary — when several lines reach the same final
+score the tie is broken by enumeration order, not by appearances. The minimax optimises outcome,
+not optics: it will happily drop a coin it can prove the opponent has no way to capture.
+
+### The case file
+
+Every suspicious play ever raised (all from watching the demo or the CRT), investigated with the
+host mirror and where warranted the real Z80:
+
+| # | The suspicion | Verdict | Where |
+|---|---|---|---|
+| 1 | Threw the coin king while holding two kings (2026-06-18) | **AI right** — it keeps the coin king (−12 vs −16); the thrown king was the *non-coin* one, misread at 48×64 | §1 |
+| 2 | Took a 7 instead of completing a 3-point napola (2026-06-28) | **Real gap** — the one confirmed miss; napola term shipped (for optics — strength-neutral) | §7 |
+| 3 | Captured a 4 in preference to the 3 of coins (2026-06-29) | **AI right** — like-for-like it always takes the coin; it only prefers the 4 when that haul is strictly bigger | DEVLOG |
+| 4 | "The opening table never has a same-value pair — biased shuffle?" (2026-06-29) | **Fair** — 41.2% of opening tables *do* have a pair, exhaustively over all 8,192 RNG seeds = the exact fair-deck rate; pairs are cross-suit so they don't read as pairs at demo speed | `tools/deal_check.py` |
+| 5 | "The player side wins more often than the CPU" | **Variance** — 40,000-match simulation in the exact demo configuration: 0.502 | DEVLOG |
+| 6 | Played an ace while holding two aces + one card (2026-07-15, asso on) | **AI right** — sweep any non-empty table (23 vs −29 for the alternative); on an empty table an ace-drop is deliberate sweep-armour | this § |
+| 7 | Dropped the 2 of denari while holding a plain 2 (2026-07-15) | **Explained** — the mid-game policy *provably* prefers the plain drop (−4, mirror and Z80 agree), so this was the deck-empty minimax: a coin drop is tie-optimal when the fully-deduced opponent hand provably can't punish it. If ever seen with the deck *not* empty it would be a real find — inject the board via `TESTMODE 70` | this § |
+
+Score so far: seven suspicions, one real gap (rare, cosmetic, fixed), six times the machine was
+right in a way that read wrong at 48×64 or demo speed. That ratio is not luck — it is what a
+self-play-tuned evaluator plus genuine card counting is supposed to look like from the outside.
+
+### Interrogating a position
+
+To ask the shipped brain about any board, drive the verified mirror directly (card ids: 0–9
+denari, 10–19 coppe, 20–29 spade, 30–39 bastoni; value = id%10 + 1):
+
+```python
+import sys; sys.path.insert(0, "tools")
+from ai_watch import ai_select, nm, VAL
+hand, table, pile = [1, 21, 15], [31, 38, 13], []
+unseen = [0]*11
+for v in range(1, 11):
+    unseen[v] = 4 - sum(1 for c in hand + table + pile if VAL[c] == v)
+r = ai_select(hand, table, pile, unseen, esperto=True, ace_rule=True)
+for sc, slot, cs, sweep in sorted(r['options'], key=lambda o: -o[0]):
+    print(sc, nm(hand[slot]), "sweep" if sweep else [nm(table[i]) for i in cs] if cs else "drop")
+```
+
+The top-scoring line is what the Spectrum will play (ties: first found wins, matching the Z80's
+`ConsiderBest`). To confirm a mid-game decision on the real Z80, poke the same board through the
+`TESTMODE 70` probe with `tools/ai_zx_check.py`.
