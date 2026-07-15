@@ -1482,7 +1482,8 @@ TM24 enriched to seed Pnapola=3/Opalle=1: verified attrs 0x44 at (15,15)+(21,16)
 still 0x07, BorderC=0, black-border screenshot. TM23 demo soak: BorderC cycles 5 (97s of play)
 -> 0 (scores hold) -> 5 (round-2 felt), screenshots clean both sides. Shipping build: title ->
 menu -> Easy -> deal shows the cyan felt (the NewMatch move holds on the real entry path).
-tap 35,661B. CRT-pending: the black-framed scoreboard + green bonus numbers.
+tap 35,661B. Deployed to both domains 2026-07-15 (96b1a86). **Tony CRT-confirmed 2026-07-15:
+running on the CRT, all is great — the black-framed scoreboard + green bonus numbers signed off.**
 
 ## The AI case file: two demo suspicions investigated + AI_ANALYSIS §9 + Italian (2026-07-15, no code change)
 
