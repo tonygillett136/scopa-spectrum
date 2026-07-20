@@ -1528,4 +1528,4 @@ both columns independently). The now-dead CatWin+4 comparison deleted from Score
 (display-only code; scoring untouched). TM24 now seeds scope 2-1 and asserts BOTH numbers
 0x44 alongside the napola/palle checks — all six attr checks PASS + black border; TM23 demo
 soak reaches a real scores screen with correct totals (0-0 scope correctly stays white).
-tap 35,647B.
+tap 35,652B.
