@@ -998,12 +998,16 @@ Start:
     ENDIF
     IF TESTMODE == 24
     ; render the per-round ShowResults grid in demo mode -> verify the "PRESS SPACE TO PLAY"
-    ; prompt under the scoring grid, then hold via the demo wait. Also seeds the one-sided
-    ; bonus rows: player napola 3 + CPU palle 1 -> their numbers must glow green (0x44 at
-    ; (15,15) and (21,16)), and the border/BorderC must be BLACK (scores screen owns it now).
+    ; prompt under the scoring grid, then hold via the demo wait. Also seeds the ADDITIVE
+    ; rows: scope 2-1 -> BOTH numbers green (0x44 at (15,14) AND (21,14)); player napola 3 +
+    ; CPU palle 1 -> green at (15,15) and (21,16); border/BorderC must be BLACK.
     ld a,1
     ld (DemoMode),a
     call NewMatch
+    ld a,2
+    ld (PScopa),a
+    ld a,1
+    ld (OScopa),a
     ld a,3
     ld (Pnapola),a
     xor a
@@ -5152,23 +5156,8 @@ ScoreRound:
     ld a,(ORound)
     add a,b
     ld (ORound),a
-    ld a,(PScopa)
-    ld b,a
-    ld a,(OScopa)
-    ld c,a
-    ld hl,CatWin+4
-    ld a,b
-    cp c
-    jr z,.stie
-    jr c,.sopp
-    ld (hl),0
-    jr .mtot
-.sopp:
-    ld (hl),1
-    jr .mtot
-.stie:
-    ld (hl),2
-.mtot:
+    ; (no CatWin entry for scope: it's additive — the scores screen greens any non-zero
+    ;  side directly from PScopa/OScopa in HighlightWinners)
     ; --- napola / Neapolitan (run of coins from the ace) ---
     xor a
     call Napola
@@ -6349,16 +6338,16 @@ ShowResults:
     call RevealAttrsSync         ; reveal the whole scores screen vblank-synced (no paint-in)
     ret
 
-; HighlightWinners: for the 5 scored categories (CatWin 0..4 at rows 6,8,10,12,14) colour
-; the winning side's 2-digit number bright green. Tie -> left white. Then the napola (row 15)
-; and palle del cane (row 16) rows: those are one-sided (only one pile can hold coins A+2+3,
-; or all four 7s), so whichever side is non-zero gets the green.
+; HighlightWinners: for the 4 COMPARATIVE categories (CatWin 0..3 at rows 6,8,10,12) colour
+; the winning side's 2-digit number bright green; tie -> left white. Then the ADDITIVE rows —
+; scope (row 14: each side keeps a point per sweep), napola (row 15) and palle del cane
+; (row 16, both one-sided by nature) — where any non-zero side scored, so it gets the green.
 HighlightWinners:
     xor a
-    ld (Tmp0),a                  ; category index 0..4
+    ld (Tmp0),a                  ; category index 0..3
 .hw:
     ld a,(Tmp0)
-    cp 5
+    cp 4
     jr nc,.bonus
     ld hl,CatWin
     call addHLA
@@ -6381,6 +6370,12 @@ HighlightWinners:
     inc (hl)
     jr .hw
 .bonus:
+    ld hl,PScopa
+    ld de,0x0F0E                 ; D=col 15 (player), E=row 14 (SCOPE)
+    call .side
+    ld hl,OScopa
+    ld de,0x150E                 ; D=col 21 (opp) — scope is additive: both sides can green
+    call .side
     ld hl,Pnapola
     ld de,0x0F0F                 ; D=col 15 (player), E=row 15 (NEAPOLITAN)
     call .side

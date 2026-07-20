@@ -1512,3 +1512,20 @@ and why its ties look arbitrary) plus the case file table (score: machine 6, hum
 verbatim-verified mirror-probe snippet. README's AI section points to it. **AI_ANALYSIS.it.md**:
 full Italian translation of the whole audit (all nine sections), ARTICLE-style cross-links.
 Commits 9a47851 + 7863278.
+
+## Scope row: green for BOTH non-zero sides (2026-07-20, Tony-spotted)
+
+Tony's follow-up niggle on the scoreboard greens, and he was right: scope is ADDITIVE (each
+side keeps a point per sweep — ScoreRound adds PScopa and OScopa to the round totals
+unconditionally), but the display treated it as a fifth comparative category via CatWin+4 —
+only the higher count greened, and a 1-1 tie greened NOBODY despite both sides having just
+scored. Under the green's meaning everywhere else on the screen ("these points counted"),
+that was wrong.
+
+Fix: HighlightWinners' comparative loop shrunk to CatWin 0..3 (Carte/Denari/Settebello/
+Primiera); scope joins napola/palle in the non-zero-green chain (same .side helper, row 14,
+both columns independently). The now-dead CatWin+4 comparison deleted from ScoreRound
+(display-only code; scoring untouched). TM24 now seeds scope 2-1 and asserts BOTH numbers
+0x44 alongside the napola/palle checks — all six attr checks PASS + black border; TM23 demo
+soak reaches a real scores screen with correct totals (0-0 scope correctly stays white).
+tap 35,647B.
